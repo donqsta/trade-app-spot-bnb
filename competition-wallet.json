@@ -1,0 +1,11 @@
+{
+  "generatedAt": "2026-06-10T04:31:52.374Z",
+  "agentWallet": "0xfc655C096cA4B26d485466CE50Dd5226d7954A05",
+  "bscscanRegister": "https://bscscan.com/address/0x212c61b9b72c95d95bf29cf032f5e5635629aed5#writeContract",
+  "dorahacks": "https://dorahacks.io/hackathon/bnbhack-twt-cmc/detail",
+  "envCheck": {
+    "TWAK_WALLET_PASSWORD": "✅ set",
+    "TWAK_ACCESS_ID": "✅ set",
+    "TWAK_HMAC_SECRET": "✅ set"
+  }
+}

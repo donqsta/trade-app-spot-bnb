@@ -1,0 +1,90 @@
+# =============================================================================
+# AI-QuantBot — ML Trainer image
+#
+# Two operating modes:
+#
+#   ONE-SHOT (default, DAEMON_MODE=false)
+#     Runs train_all.sh once then exits with code 0 (success) or N (failures).
+#     Use this when an external scheduler (Docker Compose scheduled task,
+#     Kubernetes CronJob, CI/CD pipeline) handles the retry logic.
+#
+#   DAEMON (DAEMON_MODE=true)
+#     Runs scheduler.py which calls train_all.sh every TRAIN_INTERVAL_HOURS
+#     hours in an infinite loop. Use this for Coolify GitHub deployments where
+#     there is no Docker Compose and you want the trainer to self-schedule.
+#     The container stays running; Coolify restarts it if it exits.
+#
+# Environment variables (all optional — defaults shown):
+#   DAEMON_MODE           = false          Switch to loop mode
+#   TRAIN_INTERVAL_HOURS  = 6              Hours between daemon retrains
+#   RUN_ON_STARTUP        = true           Train immediately on container start
+#   PAIRS                 = BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT
+#   INTERVAL              = 15m
+#   CANDLES               = 2000
+#   MODEL_KIND            = xgboost
+#   OUT_DIR               = /models
+#
+# Shared volume:
+#   Mount the SAME named volume as the main app at /models.
+#   The bot picks up new .onnx files automatically via mtime check in
+#   onnx-runner.ts — no restart of the main app needed.
+#
+# Build:
+#   docker build -f Dockerfile.trainer -t ai-quantbot-trainer .
+#
+# Run one-shot (local test):
+#   docker run --rm -v ${PWD}/ml/models:/models ai-quantbot-trainer
+#
+# Run daemon (local test):
+#   docker run -v ${PWD}/ml/models:/models \
+#     -e DAEMON_MODE=true -e TRAIN_INTERVAL_HOURS=6 \
+#     ai-quantbot-trainer
+# =============================================================================
+
+FROM python:3.12-slim
+
+# tini: proper PID-1 / signal handling so docker stop terminates cleanly
+# instead of leaving zombie xgboost worker processes.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tini ca-certificates bash \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python deps in a separate layer so re-runs hit the Docker cache when
+# only the scripts change. All wheels are pre-built for python:slim — no
+# compiler toolchain needed.
+COPY ml/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+# Copy only the ML scripts (not the whole repo).
+COPY ml/ ./ml/
+RUN chmod +x ./ml/train_all.sh
+
+# Defaults — every value can be overridden at Coolify's "Environment Variables"
+# section without rebuilding the image.
+ENV PAIRS="BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT" \
+    INTERVAL="15m" \
+    CANDLES="2000" \
+    MODEL_KIND="xgboost" \
+    OUT_DIR="/models" \
+    DAEMON_MODE="false" \
+    TRAIN_INTERVAL_HOURS="6" \
+    RUN_ON_STARTUP="true" \
+    MAX_CONSECUTIVE_FAILURES="3"
+
+VOLUME ["/models"]
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+
+# entrypoint.sh picks ONE-SHOT or DAEMON based on $DAEMON_MODE.
+# We inline it here to avoid an extra file.
+CMD ["bash", "-c", \
+     "if [ \"$DAEMON_MODE\" = 'true' ]; then \
+         echo '[entrypoint] Starting in DAEMON mode (interval=${TRAIN_INTERVAL_HOURS}h)'; \
+         exec python /app/ml/scheduler.py; \
+      else \
+         echo '[entrypoint] Starting in ONE-SHOT mode'; \
+         exec bash /app/ml/train_all.sh; \
+      fi"]

@@ -1,0 +1,81 @@
+# =============================================================================
+# AI-QuantBot — Coolify production stack
+#
+# Two services on the same VPS:
+#   1. bot     - always-on Next.js trader (reads .onnx from /models)
+#   2. trainer - on-demand Python sidecar (writes .onnx to /models)
+#
+# Two volumes:
+#   - botdata  -> mounted at /data    (Phase 5 persistence: trade history, ...)
+#   - models   -> mounted at /models  (shared between both services)
+#
+# Coolify setup:
+#   1. New Resource -> Docker Compose -> paste this file
+#   2. Configure env vars in the Coolify UI (see .env.example for the full list)
+#   3. Scheduled Tasks -> add:
+#        command: docker compose -f /<stack-path>/docker-compose.yml \
+#                   run --rm trainer
+#        cron:    0 3 * * *        # 03:00 UTC daily
+#      Coolify uses the host docker daemon, so `run --rm trainer` spins up the
+#      sidecar, runs ml/train_all.sh, drops fresh .onnx files into the shared
+#      volume, and exits. The `bot` service hot-reloads them on the next tick.
+# =============================================================================
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-quantbot:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      BOT_DATA_DIR: /data
+      BOT_MODEL_DIR: /models
+      # --- secrets (override in Coolify env UI, NEVER commit) ---
+      BINANCE_API_KEY: ${BINANCE_API_KEY:-}
+      BINANCE_API_SECRET: ${BINANCE_API_SECRET:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-off}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+    volumes:
+      - botdata:/data
+      - models:/models:ro     # read-only — only the trainer writes here
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Trainer: one-shot Python job, NOT a long-running service.
+  # `profiles: [cron]` means `docker compose up` does NOT start it; only
+  # `docker compose run --rm trainer` does. That's exactly what we want for
+  # a cron-triggered batch job.
+  # ---------------------------------------------------------------------------
+  trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile.trainer
+    image: ai-quantbot-trainer:latest
+    profiles: ["cron"]
+    restart: "no"
+    environment:
+      PAIRS: ${PAIRS:-BTCUSDT,ETHUSDT,SOLUSDT}
+      INTERVAL: ${INTERVAL:-15m}
+      CANDLES: ${CANDLES:-2000}
+      MODEL_KIND: ${MODEL_KIND:-xgboost}
+      OUT_DIR: /models
+    volumes:
+      - models:/models        # writable here
+
+volumes:
+  botdata:
+    driver: local
+  models:
+    driver: local

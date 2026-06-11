@@ -1,0 +1,46 @@
+# Build artefacts -------------------------------------------------------------
+node_modules
+.next
+out
+dist
+build
+
+# Dev / OS ---------------------------------------------------------------------
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+
+# Secrets — NEVER bake into the image -----------------------------------------
+.env
+.env.*
+!.env.example
+
+# Python ML pipeline ----------------------------------------------------------
+# The bot image does NOT include ml/ (models come from a shared volume at
+# runtime). The trainer image DOES include ml/ — but never these dev byproducts.
+ml/.venv
+ml/__pycache__
+ml/data
+ml/models
+ml/*.csv
+
+# Coolify / CI metadata --------------------------------------------------------
+.coolify
+.github
+
+# Runtime state — must come from the mounted volume, not the image ------------
+data
+bot-state.json
+
+# Misc -------------------------------------------------------------------------
+README.md
+*.md
+!ml/README.md
+coverage
+.next-cache
+*.tsbuildinfo
