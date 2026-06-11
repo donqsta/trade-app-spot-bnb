@@ -96,13 +96,22 @@ async function cmcGet(path: string, params: Record<string, string> = {}): Promis
 
     if (!resp.ok) {
         const text = await resp.text().catch(() => '');
-        throw new Error(`CMC HTTP ${resp.status}: ${text.slice(0, 200)}`);
+        let errMsg = text;
+        try {
+            const parsed = JSON.parse(text);
+            if (parsed.status?.error_message) {
+                errMsg = parsed.status.error_message;
+            }
+        } catch {}
+        const cleanMsg = errMsg.replace(/\r?\n/g, ' ').trim().slice(0, 150);
+        throw new Error(`CMC HTTP ${resp.status}: ${cleanMsg}`);
     }
 
     const json = await resp.json() as { status?: { error_code: number | string; error_message: string }; data?: unknown };
     const errCode = json.status?.error_code;
     if (errCode !== undefined && errCode !== null && String(errCode) !== '0') {
-        throw new Error(`CMC API error ${errCode}: ${json.status?.error_message || ''}`);
+        const cleanMsg = (json.status?.error_message || '').replace(/\r?\n/g, ' ').trim().slice(0, 150);
+        throw new Error(`CMC API error ${errCode}: ${cleanMsg}`);
     }
     return json.data;
 }
