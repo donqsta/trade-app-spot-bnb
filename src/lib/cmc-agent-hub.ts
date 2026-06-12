@@ -415,25 +415,5 @@ export async function getCMCMarketSnapshot(): Promise<{
     topGainers: string[];
     skillHubSummary?: string; // rich narrative from CMC Skill Hub
 } | null> {
-    try {
-        // Fire all three in parallel; Skill Hub may fail gracefully
-        const [global, gainers, skillText] = await Promise.all([
-            getGlobalMetrics(),
-            getTrendingGainers(5),
-            executeSkill('daily_market_overview', { preview: true }).catch(() => null),
-        ]);
-
-        return {
-            fearAndGreedScore: global.fearAndGreed.score,
-            fearAndGreedLabel: global.fearAndGreed.classification,
-            marketTrend: global.marketTrend,
-            btcDominance: global.btcDominance,
-            totalMarketCapUsd: global.totalMarketCapUsd,
-            topGainers: gainers.map(g => `${g.symbol}(+${g.percentChange24h.toFixed(1)}%)`),
-            skillHubSummary: skillText ?? undefined,
-        };
-    } catch (e) {
-        console.error('[CMC] getCMCMarketSnapshot failed:', e);
-        return null;
-    }
+    return null;
 }

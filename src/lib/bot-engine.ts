@@ -591,7 +591,6 @@ class BotEngine {
      * thrash on a small unlucky streak right after a true fallback.
      */
     private checkAlphaDecay(): void {
-        if (this.liveTradingMode === 'bsc_twak') return;
         if (this.alphaDecayWatchdogActive) return;
         const active = this.modelType;
         if (active === 'momentum') return; // momentum IS the fallback
@@ -624,8 +623,6 @@ class BotEngine {
      * ensemble 4th vote always has a reasonably fresh model.
      */
     private rollingRetrainAll(): void {
-        if (this.liveTradingMode === 'bsc_twak') return;
-
         // ── In-process models (KNN / Logistic / Ensemble) ──────────────────
         if (this.modelType === 'knn' || this.modelType === 'logistic' || this.modelType === 'ensemble') {
             for (const pair of this.activePairs) {
@@ -909,10 +906,7 @@ class BotEngine {
         this.currentTimeframe = timeframe;
         this.livePrices[pair] = 0;
 
-        // ── BSC / CMC mode ────────────────────────────────────────────────────
-        if (this.liveTradingMode === 'bsc_twak') {
-            return this.loadPairDataCMC(pair);
-        }
+        // ── BSC / CMC mode bypassed ───────────────────────────────────────────
 
         // ── Binance mode (simulated / testnet / mainnet) ───────────────────────
         this.addLog('SYSTEM', `Connecting to Binance Spot server, downloading candles for ${pair} (${timeframe})...`, 'system-line');
@@ -1174,8 +1168,6 @@ class BotEngine {
     }
 
     private async fetch24hTicker(pair: string) {
-        // In bsc_twak mode this is handled by loadPairDataCMC + CmcPriceFeed
-        if (this.liveTradingMode === 'bsc_twak') return;
         try {
             const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${pair}`);
             if (res.ok) {
@@ -1292,30 +1284,9 @@ class BotEngine {
         this.liveTradingMode = targetMode;
         this.addLog('SYSTEM', `Change trading mode: ${oldMode.toUpperCase()} -> ${targetMode.toUpperCase()}`, 'info-line');
 
-        // Stop CMC feed if leaving bsc_twak mode
-        if (oldMode === 'bsc_twak' && this.cmcFeed) {
-            this.cmcFeed.stop();
-            this.cmcFeed = null;
-        }
+        // Stop CMC feed bypassed
 
-        // Close Binance WebSockets if entering bsc_twak mode (Binance streams are not used in bsc_twak)
-        if (targetMode === 'bsc_twak') {
-            for (const pair of this.activePairs) {
-                const oldWs = this.wsMap[pair];
-                if (oldWs) {
-                    try {
-                        oldWs.onmessage = null;
-                        oldWs.close();
-                    } catch {}
-                    this.wsMap[pair] = null;
-                }
-                const oldTimeout = this.wsReconnectTimeouts[pair];
-                if (oldTimeout) {
-                    clearTimeout(oldTimeout);
-                    this.wsReconnectTimeouts[pair] = null;
-                }
-            }
-        }
+        // Close Binance WebSockets bypassed
 
         // Reload pair data & streams for the new mode
         this.addLog('SYSTEM', `Reloading trading pair data for new mode: ${targetMode.toUpperCase()}...`, 'system-line');
@@ -1324,18 +1295,14 @@ class BotEngine {
 
         // Make sure correct feed is running if bot is running
         if (this.botRunning) {
-            if (targetMode === 'bsc_twak') {
-                this.startCMCFeed();
-            } else {
-                this.activePairs.forEach(pair => {
-                    const candles = this.historicalCandlesMap[pair] || [];
-                    if (candles.length > 0) {
-                        const lastCandle = candles[candles.length - 1];
-                        this.lastCandleTimesEvaluated[pair] = null; // force evaluation
-                        this.evaluateLiveSignal(pair, lastCandle.time);
-                    }
-                });
-            }
+            this.activePairs.forEach(pair => {
+                const candles = this.historicalCandlesMap[pair] || [];
+                if (candles.length > 0) {
+                    const lastCandle = candles[candles.length - 1];
+                    this.lastCandleTimesEvaluated[pair] = null; // force evaluation
+                    this.evaluateLiveSignal(pair, lastCandle.time);
+                }
+            });
         }
 
         this.persistState();
@@ -1386,13 +1353,6 @@ class BotEngine {
      * Train ML Model on server
      */
     public trainModel(modelType: 'knn' | 'logistic' | 'momentum' | 'ensemble', pair?: string) {
-        // In bsc_twak mode the LLM + CMC signals are the decision maker — no ML training needed
-        if (this.liveTradingMode === 'bsc_twak') {
-            const symbol = pair || this.currentPair;
-            this.aiBrainTrainedMap[symbol] = true;
-            return { success: true };
-        }
-
         const symbol = pair || this.currentPair;
         const candles = this.historicalCandlesMap[symbol] || [];
         if (candles.length < 250) {
@@ -2200,10 +2160,8 @@ class BotEngine {
         this.candlesSinceLastOptimization++;
         if (this.candlesSinceLastOptimization >= 50) {
             this.candlesSinceLastOptimization = 0;
-            if (this.liveTradingMode !== 'bsc_twak') {
-                this.addLog('SYSTEM', `PERIODIC OPTIMIZATION: 50 candles since last optimization. Automatically triggering Grid Search parameter optimization for ${pair}...`, 'info-line');
-                this.autoOptimizeHyperparameters(pair);
-            }
+            this.addLog('SYSTEM', `PERIODIC OPTIMIZATION: 50 candles since last optimization. Automatically triggering Grid Search parameter optimization for ${pair}...`, 'info-line');
+            this.autoOptimizeHyperparameters(pair);
         }
 
         this.addLog('BOT', `Evaluating candle close signals on Server for ${pair}...`, 'info-line');
@@ -3699,9 +3657,6 @@ class BotEngine {
      * Evaluates 108 combinations to find the highest simulated PnL configuration.
      */
     public autoOptimizeHyperparameters(pair?: string) {
-        // In bsc_twak mode all decisions are driven by CMC + LLM — no Grid Search needed.
-        if (this.liveTradingMode === 'bsc_twak') return { success: true, skipped: true };
-
         const symbol = pair || this.currentPair;
         // Same logic as runBacktest: momentum/onnx need no in-process training.
         const needsTraining = this.modelType === 'knn' || this.modelType === 'logistic';
@@ -3889,11 +3844,6 @@ class BotEngine {
         this.addLog('SYSTEM', `Auto-Bot status update: ${running ? 'RUNNING 🟢' : 'STOPPED 🔴'}`, 'info-line');
         
         if (running) {
-            // In bsc_twak mode, CMC feed handles eval ticks — just make sure it's running
-            if (this.liveTradingMode === 'bsc_twak') {
-                this.startCMCFeed();
-                return;
-            }
             this.activePairs.forEach(pair => {
                 const candles = this.historicalCandlesMap[pair] || [];
                 if (candles.length > 0) {
@@ -3903,12 +3853,6 @@ class BotEngine {
                     this.evaluateLiveSignal(pair, lastCandle.time);
                 }
             });
-        } else {
-            // Stop CMC feed when bot is stopped
-            if (this.liveTradingMode === 'bsc_twak' && this.cmcFeed) {
-                this.cmcFeed.stop();
-                this.cmcFeed = null;
-            }
         }
     }
 
@@ -4048,17 +3992,9 @@ class BotEngine {
         // In other modes: use Binance HTF klines as before.
         let macroBias: -1 | 0 | 1 = 0;
 
-        if (this.liveTradingMode === 'bsc_twak') {
-            // CMC-derived HTF bias
-            const cmcUpd = this.cmcFeed?.getLatest(input.pair);
-            if (cmcUpd) {
-                macroBias = cmcUpd.htfBias;
-            }
-        } else {
-            const htf = await this.getHtfBias(input.pair).catch(() => null);
-            const computedBias = htf?.bias ?? computeMacroBias(input.refCandles);
-            macroBias = (computedBias as -1 | 0 | 1);
-        }
+        const htf = await this.getHtfBias(input.pair).catch(() => null);
+        const computedBias = htf?.bias ?? computeMacroBias(input.refCandles);
+        macroBias = (computedBias as -1 | 0 | 1);
 
         // Grok X Sentiment and CMC global snapshot in parallel.
         const [sentiment, cmcSnapshot] = await Promise.all([
@@ -4381,7 +4317,7 @@ class BotEngine {
                 // Auto-trigger: if ONNX model file is completely absent for current TF,
                 // kick off training — but enforce a 15-minute cooldown so a failed train
                 // doesn't cause an infinite retry loop every 30s.
-                if (this.liveTradingMode !== 'bsc_twak' && (this.modelType === 'onnx' || this.modelType === 'ensemble')) {
+                if (this.modelType === 'onnx' || this.modelType === 'ensemble') {
                     const tf = this.currentTimeframe;
                     const missingModelCooldownMs = 15 * 60_000;
                     for (const p of this.activePairs) {
@@ -4398,7 +4334,7 @@ class BotEngine {
 
                 // LLM-triggered ONNX retrain: spawns Python in background, non-blocking.
                 // Guard: only allow once every 60 minutes to prevent spam.
-                if (this.liveTradingMode !== 'bsc_twak' && llmDecision.triggerOnnxRetrain === true) {
+                if (llmDecision.triggerOnnxRetrain === true) {
                     const minRetriggerMs = 60 * 60_000;
                     const now = Date.now();
                     const tf = this.currentTimeframe;
@@ -4677,24 +4613,37 @@ class BotEngine {
     }
 
     public async syncLiveBinanceState(force = false) {
-        // ── BSC / TWAK portfolio sync ────────────────────────────────────────
-        if (this.liveTradingMode === 'bsc_twak') {
-            const twak = this.getTWAKClient();
-            if (!twak) return;
-            try {
-                const totalUsd = await twak.getTotalPortfolioUsd();
-                const usdtBal = await twak.getUsdtBalance();
-                this.balance = usdtBal;
-                this.marginFree = usdtBal;
-                // Update competition guard peak
-                if (isCompetitionActive()) {
-                    updatePortfolioPeak(totalUsd);
-                }
-            } catch { /* silently ignore sync errors */ }
+        const now = Date.now();
+        const minInterval = this.liveTradingMode === 'bsc_twak' ? 15000 : this.binanceSyncMinIntervalMs;
+        if (!force && (now - this.lastBinanceSyncTs < minInterval)) {
             return;
         }
+        if (this.binanceSyncInProgress) return;
+        this.binanceSyncInProgress = true;
+        this.lastBinanceSyncTs = now;
 
-
+        try {
+            // ── BSC / TWAK portfolio sync ────────────────────────────────────────
+            if (this.liveTradingMode === 'bsc_twak') {
+                const twak = this.getTWAKClient();
+                if (!twak) return;
+                try {
+                    const portfolio = await twak.getPortfolio();
+                    const usdt = portfolio.find(a => a.symbol?.toUpperCase() === 'USDT');
+                    const usdtBal = usdt?.usdValue ?? usdt?.balance ?? 0;
+                    const totalUsd = portfolio.reduce((sum, a) => sum + (a.usdValue || 0), 0);
+                    this.balance = usdtBal;
+                    this.marginFree = usdtBal;
+                    // Update competition guard peak
+                    if (isCompetitionActive()) {
+                        updatePortfolioPeak(totalUsd);
+                    }
+                } catch { /* silently ignore sync errors */ }
+                return;
+            }
+        } finally {
+            this.binanceSyncInProgress = false;
+        }
     }
 
     private recomputeLedger() {

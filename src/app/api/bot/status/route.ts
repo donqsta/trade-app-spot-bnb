@@ -5,7 +5,7 @@ export async function GET() {
     try {
         const bot = getBotEngine();
         if (bot.liveTradingMode !== 'simulated') {
-            await bot.syncLiveBinanceState();
+            bot.syncLiveBinanceState();
         }
         return NextResponse.json(bot.getFullState());
     } catch (e: any) {
