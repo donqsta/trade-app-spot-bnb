@@ -1,11 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-    Cpu, CandlestickChart, LineChart, AlignJustify, History, 
-    Settings, Brain, Zap, PlayCircle, Terminal, Trash2, Info, Sparkles,
-    AlertTriangle
-} from 'lucide-react';
+
 import dynamic from 'next/dynamic';
 
 const TradingChart = dynamic(() => import('@/components/TradingChart').then(mod => mod.TradingChart), { ssr: false });
@@ -842,15 +838,9 @@ export default function Home() {
     return (
         <div className="flex flex-col h-screen max-h-screen overflow-hidden text-slate-100 bg-[#08090c]">
             {/* HEADER */}
-            <header className="flex items-center justify-between px-6 py-3 bg-[#11141c]/70 backdrop-blur-md border-b border-white/5 h-16 shadow-lg">
-                <div className="flex items-center gap-3">
-                    <div className="flex items-center justify-center w-9 h-9 bg-[#00e5ff]/15 border border-[#00e5ff] rounded-lg shadow-[0_0_10px_rgba(0,229,255,0.15)]">
-                        <Cpu className="w-5 h-5 text-[#00e5ff] animate-pulse" />
-                    </div>
-                    <div>
-                        <h1 className="text-[15px] font-extrabold tracking-wider bg-gradient-to-r from-white to-[#00e5ff] bg-clip-text text-transparent">AI-QUANTBOT</h1>
-                        <span className="block text-[9px] font-semibold text-slate-500 tracking-wider -mt-1">QUANTITATIVE TRADING ENGINE</span>
-                    </div>
+            <header className="flex items-center justify-between px-6 py-1 bg-[#11141c]/70 backdrop-blur-md border-b border-white/5 h-16 shadow-lg">
+                <div className="flex items-center">
+                    <img src="/logo.png" alt="Orocle Logo" className="h-14 w-auto object-contain" />
                 </div>
 
                 {/* Glowing Multi-Ticker Pricing Bar */}
@@ -869,7 +859,7 @@ export default function Home() {
                                 onClick={() => handleSwitchPair(symbol)}
                                 className={`flex flex-col justify-center px-4 py-1.5 rounded-xl border transition-all duration-300 cursor-pointer select-none min-w-[130px] hover:scale-[1.03] active:scale-[0.98] ${
                                     active
-                                        ? 'border-[#00e5ff] bg-gradient-to-br from-[#00e5ff]/15 to-[#00b0ff]/5 shadow-[0_0_15px_rgba(0,229,255,0.2)]'
+                                        ? 'border-[#226af0] bg-[#226af0]/15 shadow-[0_0_15px_rgba(34,106,240,0.2)]'
                                         : 'border-white/5 bg-[#141822]/60 hover:border-white/15'
                                 }`}
                             >
@@ -879,7 +869,7 @@ export default function Home() {
                                     </span>
                                     {hasGrid && (
                                         <span className="text-[8px] font-black px-1.5 py-0.2 bg-[#ffb300]/15 text-[#ffb300] border border-[#ffb300]/30 rounded shadow-[0_0_5px_rgba(255,179,0,0.15)] animate-pulse">
-                                            GRID 🤖
+                                            GRID
                                         </span>
                                     )}
                                 </div>
@@ -911,7 +901,7 @@ export default function Home() {
                             className={`border text-[11px] font-bold px-2 py-1 rounded-lg outline-none cursor-pointer transition-all duration-200 ${
                                 quantOperatorEnabled 
                                     ? 'bg-[#141822]/40 border-[#706fd3]/25 text-[#a29bfe] cursor-not-allowed opacity-75' 
-                                    : 'bg-[#141822] border-white/5 text-slate-300 focus:border-[#00e5ff]'
+                                    : 'bg-[#141822] border-white/5 text-slate-300 focus:border-[#226af0]'
                             }`}
                             title={quantOperatorEnabled ? "Automatically adjusted by the LLM Quant Operator" : ""}
                         >
@@ -936,7 +926,7 @@ export default function Home() {
                 <div className="flex items-center gap-4">
                     <div className="flex flex-col items-end">
                         <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
-                            {liveTradingMode === 'simulated' ? 'Demo Account Balance' : (liveTradingMode === 'testnet' ? 'Binance Testnet Balance' : (liveTradingMode === 'bsc_twak' ? 'BSC Agent Wallet Balance' : 'Binance Live Balance'))}
+                            {liveTradingMode === 'simulated' ? 'DemoAccount Balance' : (liveTradingMode === 'testnet' ? 'Binance Testnet Balance' : (liveTradingMode === 'bsc_twak' ? 'BSC Agent Wallet Balance' : 'Binance Live Balance'))}
                         </span>
                         <span className="text-sm font-extrabold text-[#00c076] font-mono">
                             ${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -967,14 +957,14 @@ export default function Home() {
                     <div className="flex-1 flex flex-col bg-[#11141c]/50 border border-white/5 rounded-xl overflow-hidden shadow-lg min-h-[350px]">
                         <div className="flex items-center justify-between px-4 h-10 border-b border-white/5 select-none">
                             <div className="flex items-center gap-2">
-                                <CandlestickChart className="w-4 h-4 text-[#00e5ff]" />
+                                
                                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">Technical Chart</h2>
                             </div>
                             <div className="flex items-center gap-2">
                                 <button 
                                     onClick={() => setShowEma(!showEma)}
                                     className={`px-2 py-0.5 text-[10px] font-bold rounded cursor-pointer transition-all border ${
-                                        showEma ? 'bg-[#00e5ff]/15 border-[#00e5ff] text-[#00e5ff]' : 'bg-white/5 border-white/5 text-slate-400 hover:text-slate-200'
+                                        showEma ? 'bg-[#226af0]/15 border-[#226af0] text-[#226af0]' : 'bg-white/5 border-white/5 text-slate-400 hover:text-slate-200'
                                     }`}
                                 >
                                     EMA
@@ -993,7 +983,7 @@ export default function Home() {
                     <div className="h-60 flex flex-col bg-[#11141c]/50 border border-white/5 rounded-xl overflow-hidden shadow-lg">
                         <div className="flex items-center justify-between px-4 h-10 border-b border-white/5 select-none">
                             <div className="flex items-center gap-2">
-                                <LineChart className="w-4 h-4 text-[#00c076]" />
+                                
                                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">
                                     Cumulative Equity Curve {backtestMode && '(Backtest Mode)'}
                                 </h2>
@@ -1028,7 +1018,7 @@ export default function Home() {
                     <div className="flex-[1.3] flex flex-col bg-[#11141c]/50 border border-white/5 rounded-xl overflow-hidden shadow-lg min-h-0 font-mono">
                         <div className="flex items-center justify-between px-4 h-10 border-b border-white/5 select-none">
                             <div className="flex items-center gap-2">
-                                <AlignJustify className="w-4 h-4 text-[#ffb300]" />
+                                
                                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">Order Book</h2>
                             </div>
                             <span className="text-[10px] text-slate-500 font-bold">
@@ -1087,7 +1077,7 @@ export default function Home() {
                     <div className="flex-1 flex flex-col bg-[#11141c]/50 border border-white/5 rounded-xl overflow-hidden shadow-lg min-h-0 font-mono">
                         <div className="flex items-center justify-between px-4 h-10 border-b border-white/5 select-none">
                             <div className="flex items-center gap-2">
-                                <History className="w-4 h-4 text-[#af52de]" />
+                                
                                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">Market Trades</h2>
                             </div>
                             <span className="inline-block w-1.5 h-1.5 bg-[#ff3b30] rounded-full shadow-[0_0_5px_#ff3b30]" />
@@ -1120,7 +1110,7 @@ export default function Home() {
                     <div className="flex-[1.4] flex flex-col bg-[#11141c]/50 border border-white/5 rounded-xl overflow-hidden shadow-lg min-h-0">
                         <div className="flex items-center justify-between px-4 h-10 border-b border-white/5 select-none">
                             <div className="flex items-center gap-2">
-                                <Settings className="w-4 h-4 text-[#ff9500]" />
+                                
                                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">AI Bot Configuration</h2>
                             </div>
                             {/* ON/OFF Switch */}
@@ -1145,16 +1135,13 @@ export default function Home() {
                             <div className="flex flex-col gap-3 bg-white/2 border border-white/5 rounded-lg p-2.5">
                                 <div className="flex items-center gap-3">
                                     <div className="flex items-center justify-center w-10 h-10 bg-white/5 border border-white/5 rounded-full">
-                                        <Brain className={`w-5 h-5 ${
-                                            isTraining ? 'text-[#ffb300] animate-spin' : (botRunning ? 'text-[#00c076] animate-bounce' : 'text-slate-400')
-                                        }`} />
+                                        <i className={`fa-solid fa-brain text-base ${isTraining ? 'text-[#ffb300] animate-spin' : (botRunning ? 'text-[#00c076] animate-bounce' : 'text-slate-400')}`} />
                                     </div>
                                     <div className="flex flex-col">
                                         <div className="flex items-center gap-1.5">
                                             <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Brain Status:</span>
-                                            <span className="text-[8px] font-black px-1.5 py-0.2 bg-[#00e5ff]/10 text-[#00e5ff] rounded border border-[#00e5ff]/25 animate-pulse uppercase tracking-wider">
-                                                Background Auto-Train 🟢
-                                            </span>
+                                            <span className="text-[8px] font-black px-1.5 py-0.2 bg-[#226af0]/10 text-[#226af0] rounded border border-[#226af0]/25 animate-pulse uppercase tracking-wider">
+                                                Background Auto-Train</span>
                                         </div>
                                         <span className={`text-xs font-bold tracking-wider ${
                                             aiBrainTrained ? 'text-[#00c076]' : 'text-[#ffb300]'
@@ -1164,29 +1151,12 @@ export default function Home() {
                                     </div>
                                 </div>
 
-                                <div className="flex gap-2">
-                                    <button 
-                                        onClick={trainAIBrain}
-                                        disabled={isTraining}
-                                        className="flex-1 flex items-center justify-center gap-1.5 bg-[#00e5ff] text-slate-950 font-bold py-1.5 rounded-lg shadow-[0_0_10px_rgba(0,229,255,0.15)] hover:shadow-[0_0_15px_rgba(0,229,255,0.35)] transition-all cursor-pointer text-xs disabled:opacity-50"
-                                    >
-                                        <Zap className="w-3.5 h-3.5" /> Train AI Model
-                                    </button>
-                                    <button 
-                                        onClick={runBacktest}
-                                        disabled={!aiBrainTrained}
-                                        className="flex-1 flex items-center justify-center gap-1.5 bg-white/5 border border-white/5 hover:bg-white/10 text-slate-100 font-bold py-1.5 rounded-lg transition-all cursor-pointer text-xs disabled:opacity-50"
-                                    >
-                                        <PlayCircle className="w-3.5 h-3.5 text-[#00c076]" /> Run Backtest
-                                    </button>
-                                </div>
                                 <button 
-                                    onClick={runAutoOptimize}
-                                    disabled={isTraining || !aiBrainTrained || isOptimizing}
-                                    className="w-full flex items-center justify-center gap-1.5 bg-gradient-to-r from-[#9b51e0] to-[#af52de] text-white font-extrabold py-2 rounded-lg shadow-[0_0_10px_rgba(175,82,222,0.15)] hover:shadow-[0_0_15px_rgba(175,82,222,0.35)] hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer text-xs disabled:opacity-50 mt-1"
+                                    onClick={trainAIBrain}
+                                    disabled={isTraining}
+                                    className="w-full flex items-center justify-center gap-1.5 bg-[#226af0] text-white font-bold py-2 rounded-lg shadow-[0_0_10px_rgba(34,106,240,0.15)] hover:shadow-[0_0_15px_rgba(34,106,240,0.35)] transition-all cursor-pointer text-xs disabled:opacity-50"
                                 >
-                                    <Sparkles className={`w-3.5 h-3.5 ${isOptimizing ? 'animate-spin' : ''}`} /> 
-                                    {isOptimizing ? 'AUTO OPTIMIZING...' : 'AUTO-OPTIMIZE PARAMETERS 🚀'}
+                                    Train AI Model
                                 </button>
                             </div>
 
@@ -1196,8 +1166,8 @@ export default function Home() {
                                     <label className="text-[9px] text-slate-500 font-bold uppercase">Trading Mode</label>
                                     <div className="grid grid-cols-2 gap-1">
                                         {[
-                                            { id: 'simulated', label: '🎮 Demo', activeColor: 'border-[#00e5ff] text-[#00e5ff] bg-[#00e5ff]/10 shadow-[0_0_10px_rgba(0,229,255,0.1)]' },
-                                            { id: 'bsc_twak', label: '⚡ Real BSC', activeColor: 'border-[#00c076] text-[#00c076] bg-[#00c076]/10 shadow-[0_0_10px_rgba(0,192,118,0.1)]' }
+                                            { id: 'simulated', label: 'Demo', activeColor: 'border-[#226af0] text-[#226af0] bg-[#226af0]/10 shadow-[0_0_10px_rgba(34,106,240,0.1)]' },
+                                            { id: 'bsc_twak', label: 'Real BSC', activeColor: 'border-[#00c076] text-[#00c076] bg-[#00c076]/10 shadow-[0_0_10px_rgba(0,192,118,0.1)]' }
                                         ].map((m) => (
                                             <button
                                                 key={m.id}
@@ -1227,7 +1197,7 @@ export default function Home() {
                                         {twakConfigured ? (
                                             <div className="flex flex-col gap-1.5 bg-[#00c076]/5 border border-[#00c076]/20 rounded-lg p-2.5">
                                                 <span className="text-[9px] font-black text-[#00c076] uppercase tracking-wider flex items-center gap-1 justify-center">
-                                                    🟢 BSC TWAK Wallet Configured (.env)
+                                                    BSC TWAK Wallet Configured
                                                 </span>
                                                 {twakAgentWallet && (
                                                     <span className="text-[9px] font-mono text-slate-400 text-center select-all block bg-slate-950/40 py-0.5 rounded">
@@ -1238,7 +1208,7 @@ export default function Home() {
                                         ) : (
                                             <div className="flex flex-col gap-1.5 bg-[#ff9500]/5 border border-[#ff9500]/20 rounded-lg p-2.5 text-center">
                                                 <span className="text-[9px] font-black text-[#ff9500] uppercase tracking-wider">
-                                                    ⚠️ TWAK Credentials Missing
+                                                    TWAK Credentials Missing
                                                 </span>
                                                 <span className="text-[9px] text-slate-400 leading-normal">
                                                     Please configure TWAK_WALLET_PASSWORD / TWAK_AGENT_WALLET in your .env file.
@@ -1250,7 +1220,7 @@ export default function Home() {
 
                                 {/* ===== LLM BRAIN CONFIG (Phase 1) ===== */}
                                 <div className="flex flex-col gap-2 mt-2 border-t border-white/5 pt-2">
-                                    <span className="text-[9px] font-black text-[#a29bfe] uppercase tracking-wider">🤖 LLM AI Brain</span>
+                                    <span className="text-[9px] font-black text-[#a29bfe] uppercase tracking-wider">LLM AI Brain</span>
                                     <div className="grid grid-cols-2 gap-1.5">
                                         <select
                                             value={llmProvider}
@@ -1315,7 +1285,7 @@ export default function Home() {
                                                 <span className="text-[9px] text-slate-400">Risk x{llmRiskMultiplier.toFixed(2)}</span>
                                                 <span className="text-[9px] text-slate-400 font-mono">{llmLastLatency}ms</span>
                                                 <span className={`text-[9px] font-bold ${llmApiKey ? 'text-[#00c076]' : 'text-[#ff9500]'}`}>
-                                                    {llmApiKey ? '🟢 Ready' : '⚠️ Key missing'}
+                                                    {llmApiKey ? ' Ready' : ' Key missing'}
                                                 </span>
                                             </div>
                                             <div className="flex items-center justify-between border-t border-[#a29bfe]/10 pt-1">
@@ -1333,7 +1303,7 @@ export default function Home() {
                                 {/* Model Selection */}
                                 <div className="flex flex-col gap-1">
                                     <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                                        AI Algorithm <span title="KNN: K-Nearest Neighbors grouping | Logistic: Regression learning weights"><Info className="w-2.5 h-2.5 text-slate-500 cursor-help" /></span>
+                                        AI Algorithm <span title="KNN: K-Nearest Neighbors grouping | Logistic: Regression learning weights"><i className="fa-solid fa-circle-info text-[10px] text-slate-500 cursor-help" /></span>
                                     </label>
                                     <select 
                                         value={modelType}
@@ -1342,14 +1312,14 @@ export default function Home() {
                                         className={`border text-slate-200 text-xs font-bold px-2 py-1.5 rounded-lg outline-none cursor-pointer transition-all ${
                                             quantOperatorEnabled 
                                                 ? 'bg-white/1 border-[#706fd3]/25 text-[#a29bfe] cursor-not-allowed opacity-75' 
-                                                : 'bg-white/5 border-white/5 focus:border-[#00e5ff]'
+                                                : 'bg-white/5 border-white/5 focus:border-[#226af0]'
                                         }`}
                                         title={quantOperatorEnabled ? "Automatically adjusted by the LLM Quant Operator Brain" : ""}
                                     >
                                         <option value="knn">K-Nearest Neighbors (KNN)</option>
                                         <option value="logistic">Logistic Regression</option>
                                         <option value="momentum">Advanced Momentum Quant</option>
-                                        <option value="ensemble">🧠 Ensemble (3-model weighted vote)</option>
+                                        <option value="ensemble"> Ensemble (3-model weighted vote)</option>
                                         <option value="onnx">ONNX (XGBoost/LightGBM)</option>
                                     </select>
                                 </div>
@@ -1358,7 +1328,7 @@ export default function Home() {
                                 <div className="flex flex-col gap-1">
                                     <div className="flex justify-between items-center text-[10px] font-bold uppercase">
                                         <span className="text-slate-400">Min Confidence</span>
-                                        <span className="text-[#00e5ff] font-mono">{confidence}%</span>
+                                        <span className="text-[#226af0] font-mono">{confidence}%</span>
                                     </div>
                                     <input 
                                         type="range" 
@@ -1370,7 +1340,7 @@ export default function Home() {
                                             setConfidence(val);
                                             handleParamChange('confidenceThreshold', val);
                                         }}
-                                        className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#00e5ff]" 
+                                        className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#226af0]" 
                                     />
                                 </div>
 
@@ -1378,7 +1348,7 @@ export default function Home() {
                                 <div className="flex flex-col gap-1">
                                     <div className="flex justify-between items-center text-[10px] font-bold uppercase">
                                         <span className="text-slate-400">Risk Ratio</span>
-                                        <span className="text-[#00e5ff] font-mono">{risk}%</span>
+                                        <span className="text-[#226af0] font-mono">{risk}%</span>
                                     </div>
                                     <input 
                                         type="range" 
@@ -1391,7 +1361,7 @@ export default function Home() {
                                             setRisk(val);
                                             handleParamChange('riskRatio', val);
                                         }}
-                                        className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#00e5ff]" 
+                                        className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#226af0]" 
                                     />
                                 </div>
 
@@ -1410,7 +1380,7 @@ export default function Home() {
                                                 setTpAtr(val);
                                                 handleParamChange('tpAtrMultiplier', val);
                                             }}
-                                            className="bg-white/3 border border-white/5 rounded-lg py-1 px-2.5 outline-none font-mono text-slate-200 focus:border-[#00e5ff]" 
+                                            className="bg-white/3 border border-white/5 rounded-lg py-1 px-2.5 outline-none font-mono text-slate-200 focus:border-[#226af0]" 
                                         />
                                     </div>
                                     <div className="flex flex-col gap-1">
@@ -1426,7 +1396,7 @@ export default function Home() {
                                                 setSlAtr(val);
                                                 handleParamChange('slAtrMultiplier', val);
                                             }}
-                                            className="bg-white/3 border border-white/5 rounded-lg py-1 px-2.5 outline-none font-mono text-slate-200 focus:border-[#00e5ff]" 
+                                            className="bg-white/3 border border-white/5 rounded-lg py-1 px-2.5 outline-none font-mono text-slate-200 focus:border-[#226af0]" 
                                         />
                                     </div>
                                 </div>
@@ -1445,7 +1415,7 @@ export default function Home() {
                                                 const val = parseFloat(e.target.value);
                                                 handleSetCapital(val);
                                             }}
-                                            className="bg-white/3 border border-white/5 rounded-lg py-1 px-2.5 outline-none font-mono text-slate-200 focus:border-[#00e5ff]" 
+                                            className="bg-white/3 border border-white/5 rounded-lg py-1 px-2.5 outline-none font-mono text-slate-200 focus:border-[#226af0]" 
                                         />
                                     </div>
                                     <div className="flex flex-col gap-1">
@@ -1453,8 +1423,8 @@ export default function Home() {
                                             Smart Quant (Order Adjuster)
                                         </label>
                                         <div className="flex items-center h-8 gap-2 bg-white/2 border border-white/5 px-2.5 rounded-lg">
-                                            <span className={`text-[9px] font-black ${smartOrderAdjustment ? 'text-[#00e5ff]' : 'text-slate-500'}`}>
-                                                {smartOrderAdjustment ? 'ACTIVE 🛡️' : 'OFF'}
+                                            <span className={`text-[9px] font-black ${smartOrderAdjustment ? 'text-[#226af0]' : 'text-slate-500'}`}>
+                                                {smartOrderAdjustment ? 'ACTIVE' : 'OFF'}
                                             </span>
                                             <label className="relative inline-flex items-center cursor-pointer ml-auto">
                                                 <input 
@@ -1475,8 +1445,8 @@ export default function Home() {
                                             AI Smart Grid Mode
                                         </label>
                                         <div className="flex items-center h-8 gap-2 bg-white/2 border border-white/5 px-2.5 rounded-lg">
-                                            <span className={`text-[9px] font-black ${gridModeEnabled ? 'text-[#00e5ff] animate-pulse' : 'text-slate-500'}`}>
-                                                {gridModeEnabled ? 'ACTIVE 🤖' : 'OFF 🔴'}
+                                            <span className={`text-[9px] font-black ${gridModeEnabled ? 'text-[#226af0] animate-pulse' : 'text-slate-500'}`}>
+                                                {gridModeEnabled ? 'ACTIVE' : 'OFF'}
                                             </span>
                                             <label className="relative inline-flex items-center cursor-pointer ml-auto">
                                                 <input 
@@ -1493,7 +1463,7 @@ export default function Home() {
 
                                 <div className="grid grid-cols-1 border-t border-white/5 pt-3.5 mt-1 gap-3">
                                     <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                                        🎯 Daily Profit Target
+                                        Daily Profit Target
                                     </label>
 
                                     <div className="bg-white/2 border border-white/5 rounded-lg p-2.5 flex flex-col gap-1.5">
@@ -1512,7 +1482,7 @@ export default function Home() {
                                         <div className="flex justify-between text-[9px] text-slate-500">
                                             <span>{dailyTargetProgressPct.toFixed(1)}% target progress</span>
                                             {pauseNewEntries && (
-                                                <span className="text-[#ffb300] font-black">⏸ PROTECTING</span>
+                                                <span className="text-[#ffb300] font-black">PROTECTING</span>
                                             )}
                                         </div>
                                     </div>
@@ -1563,7 +1533,7 @@ export default function Home() {
                                         </label>
                                         <div className="flex items-center h-8 gap-2 bg-white/2 border border-white/5 px-2.5 rounded-lg">
                                             <span className={`text-[9px] font-black ${stopOnTargetMet ? 'text-[#ffb300]' : 'text-slate-500'}`}>
-                                                {stopOnTargetMet ? 'ON 🎯' : 'OFF'}
+                                                {stopOnTargetMet ? 'ON' : 'OFF'}
                                             </span>
                                             <label className="relative inline-flex items-center cursor-pointer ml-auto">
                                                 <input
@@ -1583,7 +1553,7 @@ export default function Home() {
                                         </label>
                                         <div className="flex items-center h-8 gap-2 bg-white/2 border border-white/5 px-2.5 rounded-lg">
                                             <span className={`text-[9px] font-black ${pauseNewEntries ? 'text-[#ff9500]' : 'text-slate-500'}`}>
-                                                {pauseNewEntries ? 'PAUSE ⏸️' : 'ACTIVE ▶️'}
+                                                {pauseNewEntries ? 'PAUSE' : 'ACTIVE'}
                                             </span>
                                             <label className="relative inline-flex items-center cursor-pointer ml-auto">
                                                 <input
@@ -1601,11 +1571,11 @@ export default function Home() {
                                 <div className="grid grid-cols-1 border-t border-white/5 pt-3.5 mt-1">
                                     <div className="flex flex-col gap-1">
                                         <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                                            LLM Quant Operator Brain 🧠
+                                            LLM Quant Operator Brain
                                         </label>
                                         <div className="flex items-center h-8 gap-2 bg-white/2 border border-white/5 px-2.5 rounded-lg">
                                             <span className={`text-[9px] font-black ${quantOperatorEnabled ? 'text-[#a29bfe] animate-pulse' : 'text-slate-500'}`}>
-                                                {quantOperatorEnabled ? 'ACTIVE 🧠' : 'OFF 🔴'}
+                                                {quantOperatorEnabled ? 'ACTIVE' : 'OFF'}
                                             </span>
                                             <label className="relative inline-flex items-center cursor-pointer ml-auto">
                                                 <input 
@@ -1627,7 +1597,7 @@ export default function Home() {
                     <div className="flex-1 flex flex-col bg-[#040507] border border-white/5 rounded-xl overflow-hidden shadow-lg min-h-[160px]">
                         <div className="flex items-center justify-between px-4 h-10 border-b border-white/5 bg-[#11141c]/50 select-none">
                             <div className="flex items-center gap-2">
-                                <Terminal className="w-4 h-4 text-[#00c076]" />
+                                
                                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">Server Console Logs</h2>
                             </div>
                             <button 
@@ -1635,7 +1605,7 @@ export default function Home() {
                                 className="text-slate-500 hover:text-slate-200 transition-colors cursor-pointer"
                                 title="Clear logs"
                             >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <i className="fa-regular fa-trash-can text-xs" />
                             </button>
                         </div>
                         <div className="flex-1 p-3 overflow-y-auto flex flex-col gap-1 font-mono text-[10px] leading-relaxed">
@@ -1647,7 +1617,7 @@ export default function Home() {
                                     borderClass += 'border-slate-500';
                                     textClass = 'text-slate-400';
                                 } else if (log.styleClass === 'info-line') {
-                                    borderClass += 'border-[#00e5ff]';
+                                    borderClass += 'border-[#226af0]';
                                     textClass = 'text-[#e0f7fa]';
                                 } else if (log.styleClass === 'buy-line') {
                                     borderClass += 'border-[#00c076] bg-[#00c076]/5 rounded-r px-1';
@@ -1662,7 +1632,7 @@ export default function Home() {
 
                                 return (
                                     <div key={`log-${idx}`} className={`${borderClass} ${textClass} break-all`}>
-                                        [{log.time}] <strong className="text-[#00e5ff]">{log.source}</strong>: {log.message}
+                                        [{log.time}] <strong className="text-[#226af0]">{log.source}</strong>: {log.message}
                                     </div>
                                 );
                             })}
@@ -1680,7 +1650,7 @@ export default function Home() {
                         <button 
                             onClick={() => setActiveTab('positions')}
                             className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center ${
-                                activeTab === 'positions' ? 'text-[#00e5ff] border-[#00e5ff]' : 'text-slate-400 border-transparent hover:text-slate-200'
+                                activeTab === 'positions' ? 'text-[#226af0] border-[#226af0]' : 'text-slate-400 border-transparent hover:text-slate-200'
                             }`}
                         >
                             Open Positions ({openPositions.length})
@@ -1688,7 +1658,7 @@ export default function Home() {
                         <button 
                             onClick={() => setActiveTab('grid')}
                             className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center ${
-                                activeTab === 'grid' ? 'text-[#00e5ff] border-[#00e5ff]' : 'text-slate-400 border-transparent hover:text-slate-200'
+                                activeTab === 'grid' ? 'text-[#226af0] border-[#226af0]' : 'text-slate-400 border-transparent hover:text-slate-200'
                             }`}
                         >
                             AI Smart Grid ({gridOrders.length})
@@ -1696,7 +1666,7 @@ export default function Home() {
                         <button 
                             onClick={() => setActiveTab('orders')}
                             className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center ${
-                                activeTab === 'orders' ? 'text-[#00e5ff] border-[#00e5ff]' : 'text-slate-400 border-transparent hover:text-slate-200'
+                                activeTab === 'orders' ? 'text-[#226af0] border-[#226af0]' : 'text-slate-400 border-transparent hover:text-slate-200'
                             }`}
                         >
                             Order History ({orderHistory.length})
@@ -1704,7 +1674,7 @@ export default function Home() {
                         <button 
                             onClick={() => setActiveTab('history')}
                             className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center ${
-                                activeTab === 'history' ? 'text-[#00e5ff] border-[#00e5ff]' : 'text-slate-400 border-transparent hover:text-slate-200'
+                                activeTab === 'history' ? 'text-[#226af0] border-[#226af0]' : 'text-slate-400 border-transparent hover:text-slate-200'
                             }`}
                         >
                             {backtestMode ? 'Backtest Trade History' : 'Trade History'}
@@ -1712,7 +1682,7 @@ export default function Home() {
                         <button 
                             onClick={() => setActiveTab('metrics')}
                             className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center ${
-                                activeTab === 'metrics' ? 'text-[#00e5ff] border-[#00e5ff]' : 'text-slate-400 border-transparent hover:text-slate-200'
+                                activeTab === 'metrics' ? 'text-[#226af0] border-[#226af0]' : 'text-slate-400 border-transparent hover:text-slate-200'
                             }`}
                         >
                             Performance Metrics
@@ -1723,7 +1693,7 @@ export default function Home() {
                                 activeTab === 'operator' ? 'text-[#a29bfe] border-[#706fd3]' : 'text-slate-400 border-transparent hover:text-[#a29bfe]/80'
                             }`}
                         >
-                            Quant Operator Brain (LLM) 🧠
+                            Quant Operator Brain (LLM)
                         </button>
                     </div>
 
@@ -1776,7 +1746,7 @@ export default function Home() {
                                             return (
                                                 <tr key={`ord-${idx}`} className="border-b border-white/5 hover:bg-white/1">
                                                     <td className="py-2.5 px-5 text-slate-500">{o.time}</td>
-                                                    <td className="py-2.5 px-4"><span className="bg-[#00e5ff]/10 text-[#00e5ff] px-2 py-0.5 rounded text-[10px] font-bold">{o.symbol}</span></td>
+                                                    <td className="py-2.5 px-4"><span className="bg-[#226af0]/10 text-[#226af0] px-2 py-0.5 rounded text-[10px] font-bold">{o.symbol}</span></td>
                                                     <td className="py-2.5 px-4">
                                                         <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${o.type === 'LIMIT' ? 'bg-[#9b51e0]/10 text-[#9b51e0] border border-[#9b51e0]/20' : 'bg-[#af52de]/10 text-[#af52de] border border-[#af52de]/20'}`}>
                                                             {o.type}
@@ -1821,8 +1791,8 @@ export default function Home() {
                             <div className="grid grid-cols-4 gap-4 select-none">
                                 <div className="bg-white/2 border border-white/5 rounded-xl p-3 flex flex-col gap-1">
                                     <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Grid Status</span>
-                                    <span className={`text-[13px] font-extrabold ${gridActive ? 'text-[#00e5ff] animate-pulse' : 'text-[#ff9500]'}`}>
-                                        {gridActive ? 'RUNNING (DEPLOYED) 🤖' : (gridModeEnabled ? 'WAITING FOR SIDEWAYS ⏱️' : 'INACTIVE 🔴')}
+                                    <span className={`text-[13px] font-extrabold ${gridActive ? 'text-[#226af0] animate-pulse' : 'text-[#ff9500]'}`}>
+                                        {gridActive ? 'RUNNING (DEPLOYED) ' : (gridModeEnabled ? 'WAITING FOR SIDEWAYS' : 'INACTIVE ')}
                                     </span>
                                 </div>
                                 <div className="bg-white/2 border border-white/5 rounded-xl p-3 flex flex-col gap-1 font-mono">
@@ -1880,7 +1850,7 @@ export default function Home() {
                                                     <td className="py-2.5 px-5 font-bold text-slate-400">{order.id}</td>
                                                     <td className="py-2.5 px-4 font-bold">
                                                         <span className={order.type === 'BUY_LIMIT' ? 'text-[#00c076]' : 'text-[#ff3b30]'}>
-                                                            {order.type === 'BUY_LIMIT' ? 'BUY LONG 🟢' : 'SELL SHORT 🔴'}
+                                                            {order.type === 'BUY_LIMIT' ? 'BUY LONG' : 'SELL SHORT'}
                                                         </span>
                                                     </td>
                                                     <td className="py-2.5 px-4 text-slate-200">${order.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
@@ -1965,7 +1935,7 @@ export default function Home() {
                                             const barColor = activeTier >= 5 ? '#a855f7' : activeTier >= 3 ? '#00c076' : activeTier >= 2 ? '#3b82f6' : activeTier >= 1 ? '#eab308' : '#475569';
                                             return (
                                                 <tr key={`pos-${idx}`} className="border-b border-white/5 hover:bg-white/1">
-                                                    <td className="py-2.5 px-5"><span className="bg-[#00e5ff]/10 text-[#00e5ff] px-2 py-0.5 rounded border border-[#00e5ff]/20 text-[10px] font-bold">{pos.symbol}</span></td>
+                                                    <td className="py-2.5 px-5"><span className="bg-[#226af0]/10 text-[#226af0] px-2 py-0.5 rounded border border-[#226af0]/20 text-[10px] font-bold">{pos.symbol}</span></td>
                                                     <td className="py-2.5 px-4">${(pos.size * pos.entryPrice).toFixed(2)}</td>
                                                     <td className="py-2.5 px-4">${pos.entryPrice.toLocaleString(undefined, { minimumFractionDigits: getDigits(pos.symbol), maximumFractionDigits: getDigits(pos.symbol) })}</td>
                                                     <td className="py-2.5 px-4">${currentPosPrice.toLocaleString(undefined, { minimumFractionDigits: getDigits(pos.symbol), maximumFractionDigits: getDigits(pos.symbol) })}</td>
@@ -1975,7 +1945,7 @@ export default function Home() {
                                                             <div className="flex items-center gap-1 text-[9px]">
                                                                 <span className="text-[#ff3b30]">SL ${pos.sl.toLocaleString(undefined, { minimumFractionDigits: getDigits(pos.symbol), maximumFractionDigits: getDigits(pos.symbol) })}</span>
                                                                 {pos.binanceSlSynced === false && (
-                                                                    <span className="text-yellow-400 font-bold">⚠️sync</span>
+                                                                    <span className="text-yellow-400 font-bold">sync</span>
                                                                 )}
                                                             </div>
                                                             <div className="text-[9px] text-[#00c076]">TP ${pos.tp.toLocaleString(undefined, { minimumFractionDigits: getDigits(pos.symbol), maximumFractionDigits: getDigits(pos.symbol) })}</div>
@@ -2000,12 +1970,12 @@ export default function Home() {
                                                             </div>
                                                             {pos.trailingTpActive && pos.trailingTpPrice != null && (
                                                                 <span className="text-[8px] text-cyan-400 font-bold">
-                                                                    🎯 Trailing TP ${pos.trailingTpPrice.toLocaleString(undefined, { minimumFractionDigits: getDigits(pos.symbol), maximumFractionDigits: getDigits(pos.symbol) })}
+                                                                     Trailing TP ${pos.trailingTpPrice.toLocaleString(undefined, { minimumFractionDigits: getDigits(pos.symbol), maximumFractionDigits: getDigits(pos.symbol) })}
                                                                     {pos.peakPrice != null && ` · peak $${pos.peakPrice.toLocaleString(undefined, { minimumFractionDigits: getDigits(pos.symbol), maximumFractionDigits: getDigits(pos.symbol) })}`}
                                                                 </span>
                                                             )}
                                                             {pos.hybridCloseMode && (
-                                                                <span className="text-[8px] text-orange-400 font-bold">🔄 HYBRID x{pos.hybridRetries}</span>
+                                                                <span className="text-[8px] text-orange-400 font-bold">HYBRID x{pos.hybridRetries}</span>
                                                             )}
                                                         </div>
                                                     </td>
@@ -2057,7 +2027,7 @@ export default function Home() {
                                             return (
                                                 <tr key={`his-${idx}`} className="border-b border-white/5 hover:bg-white/1">
                                                     <td className="py-2.5 px-5 text-slate-500">{t.time}</td>
-                                                    <td className="py-2.5 px-4"><span className="bg-[#00e5ff]/10 text-[#00e5ff] px-2 py-0.5 rounded text-[10px] font-bold">{t.pair}</span></td>
+                                                    <td className="py-2.5 px-4"><span className="bg-[#226af0]/10 text-[#226af0] px-2 py-0.5 rounded text-[10px] font-bold">{t.pair}</span></td>
                                                     <td className="py-2.5 px-4">{t.type}</td>
                                                     <td className="py-2.5 px-4"><span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${isBuy ? 'bg-[#00c076]/10 text-[#00c076] border border-[#00c076]/30' : 'bg-[#ff3b30]/10 text-[#ff3b30] border border-[#ff3b30]/30'}`}>{t.side}</span></td>
                                                     <td className="py-2.5 px-4">${t.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
@@ -2172,7 +2142,7 @@ export default function Home() {
                             {/* Radar / Metrics Panel */}
                             <div className="w-[300px] min-w-[300px] border-r border-white/5 p-4 flex flex-col gap-3.5 bg-slate-950/20 font-mono">
                                 <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-white/5 pb-2 flex items-center gap-1.5">
-                                    <Brain className="w-3.5 h-3.5 text-[#a29bfe]" /> Market Radar Metrics
+                                     Market Radar Metrics
                                 </div>
                                 
                                 <div className="bg-white/2 border border-white/5 rounded-xl p-3 flex flex-col gap-1.5">
@@ -2184,8 +2154,8 @@ export default function Home() {
                                             quantOperatorMetrics.choppiness < 52 ? 'bg-[#ff3b30]/10 text-[#ff3b30]' : 
                                             'bg-slate-800 text-slate-400'
                                         }`}>
-                                            {quantOperatorMetrics.choppiness > 62 ? 'SIDEWAYS (CHOP) 💤' : 
-                                             quantOperatorMetrics.choppiness < 52 ? 'TRENDING 📈' : 
+                                            {quantOperatorMetrics.choppiness > 62 ? 'SIDEWAYS (CHOP)' : 
+                                             quantOperatorMetrics.choppiness < 52 ? 'TRENDING' : 
                                              'NEUTRAL (NORMAL)'}
                                         </span>
                                     </div>
@@ -2207,10 +2177,10 @@ export default function Home() {
                                         <span className={`text-[9px] font-black px-2 py-0.5 rounded ${
                                             quantOperatorMetrics.volatility >= 1.2 ? 'bg-[#ff3b30]/15 text-[#ff3b30] border border-[#ff3b30]/30 animate-pulse' : 
                                             quantOperatorMetrics.volatility < 0.25 ? 'bg-slate-800 text-slate-400' : 
-                                            'bg-[#00e5ff]/10 text-[#00e5ff]'
+                                            'bg-[#226af0]/10 text-[#226af0]'
                                         }`}>
-                                            {quantOperatorMetrics.volatility >= 1.2 ? 'EXTREME ⚡' : 
-                                             quantOperatorMetrics.volatility < 0.25 ? 'LOW 💤' : 
+                                            {quantOperatorMetrics.volatility >= 1.2 ? 'EXTREME ' : 
+                                             quantOperatorMetrics.volatility < 0.25 ? 'LOW' : 
                                              'STABLE'}
                                         </span>
                                     </div>
@@ -2218,7 +2188,7 @@ export default function Home() {
                                         <div 
                                             className={`h-full transition-all duration-500 ${
                                                 quantOperatorMetrics.volatility >= 1.2 ? 'bg-[#ff3b30]' : 
-                                                quantOperatorMetrics.volatility < 0.25 ? 'bg-slate-600' : 'bg-[#00e5ff]'
+                                                quantOperatorMetrics.volatility < 0.25 ? 'bg-slate-600' : 'bg-[#226af0]'
                                             }`} 
                                             style={{ width: `${Math.min(100, (quantOperatorMetrics.volatility / 1.5) * 100)}%` }}
                                         ></div>
@@ -2232,7 +2202,7 @@ export default function Home() {
                                         <span className={`text-[9px] font-black px-2 py-0.5 rounded ${
                                             quantOperatorMetrics.trendIntensity >= 35 ? 'bg-[#ff3b30]/10 text-[#ff3b30]' : 'bg-slate-800 text-slate-400'
                                         }`}>
-                                            {quantOperatorMetrics.trendIntensity >= 35 ? 'STRONG 🚀' : 'WEAK/ACCUMULATION'}
+                                            {quantOperatorMetrics.trendIntensity >= 35 ? 'STRONG ' : 'WEAK/ACCUMULATION'}
                                         </span>
                                     </div>
                                     <div className="w-full bg-slate-850 h-1.5 rounded-full overflow-hidden mt-0.5 border border-white/5">
@@ -2250,7 +2220,7 @@ export default function Home() {
                             <div className="flex-1 flex flex-col min-w-0 bg-[#05060a]/90">
                                 <div className="h-8 border-b border-white/5 bg-slate-950/40 px-4 flex items-center justify-between select-none">
                                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-                                        <Terminal className="w-3.5 h-3.5 text-[#a29bfe]" /> QUANT COGNITIVE PROMPT LOGS (OPERATOR COGNITION)
+                                         QUANT COGNITIVE PROMPT LOGS (OPERATOR COGNITION)
                                     </span>
                                     <span className="flex items-center gap-1">
                                         <span className={`w-1.5 h-1.5 rounded-full ${quantOperatorEnabled ? 'bg-[#00c076] animate-pulse' : 'bg-slate-600'}`}></span>
@@ -2261,30 +2231,30 @@ export default function Home() {
                                 <div className="flex-1 overflow-y-auto p-4 font-mono text-[10px] flex flex-col gap-2.5 leading-relaxed">
                                     {quantOperatorThoughts.length === 0 ? (
                                         <div className="flex flex-col items-center justify-center h-full text-slate-500 py-12">
-                                            <Brain className="w-10 h-10 text-[#a29bfe]/20 animate-pulse mb-3" />
+                                            <i className="fa-solid fa-brain text-4xl text-[#a29bfe]/20 animate-pulse mb-3" />
                                             <p className="font-sans">No cognitive logs recorded yet. Enable "LLM Quant Operator Brain" in configuration panel for real-time analysis.</p>
                                         </div>
                                     ) : (
                                         [...quantOperatorThoughts].reverse().map((t, idx) => {
                                              const isDecision = t.type === 'decision';
-                                             const isWarning = t.type === 'warning' || t.message.includes('🚨') || t.message.includes('⚠️');
+                                             const isWarning = t.type === 'warning' || t.message.includes('') || t.message.includes('');
                                              
                                              let cardClass = "border-l-2 border-slate-700 bg-slate-900/20 text-slate-300";
                                              let tagClass = "text-[#a29bfe]";
-                                             let icon = <Brain className="w-3.5 h-3.5 text-[#a29bfe] shrink-0" />;
+                                             let icon = <i className="fa-solid fa-brain text-[11px] text-[#a29bfe] shrink-0 mt-0.5" />;
  
                                              if (isDecision) {
-                                                 cardClass = "border-l-2 border-[#00e5ff] bg-[#00e5ff]/5 text-[#e0f7fa] font-semibold border border-[#00e5ff]/15";
-                                                 tagClass = "text-[#00e5ff]";
-                                                 icon = <Zap className="w-3.5 h-3.5 text-[#00e5ff] shrink-0 animate-pulse" />;
+                                                 cardClass = "border-l-2 border-[#226af0] bg-[#226af0]/5 text-[#e0f7fa] font-semibold border border-[#226af0]/15";
+                                                 tagClass = "text-[#226af0]";
+                                                 icon = <i className="fa-solid fa-bolt text-[11px] text-[#226af0] shrink-0 animate-pulse mt-0.5" />;
                                              } else if (isWarning) {
                                                  cardClass = "border-l-2 border-[#ffb142] bg-[#ffb142]/5 text-[#ffeaa7] border border-[#ffb142]/15";
                                                  tagClass = "text-[#ffb142]";
-                                                 icon = <AlertTriangle className="w-3.5 h-3.5 text-[#ffb142] shrink-0 animate-bounce" />;
-                                             } else if (t.message.includes('💤')) {
+                                                 icon = <i className="fa-solid fa-triangle-exclamation text-[11px] text-[#ffb142] shrink-0 animate-bounce mt-0.5" />;
+                                             } else if (t.message.includes('')) {
                                                  cardClass = "border-l-2 border-slate-600 bg-slate-800/10 text-slate-400";
                                                  tagClass = "text-slate-500";
-                                                 icon = <Sparkles className="w-3.5 h-3.5 text-slate-500 shrink-0" />;
+                                                 icon = <i className="fa-solid fa-star text-[10px] text-slate-500 shrink-0 mt-0.5" />;
                                              }
  
                                              return (
