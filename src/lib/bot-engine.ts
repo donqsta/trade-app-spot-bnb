@@ -4638,7 +4638,9 @@ class BotEngine {
                     if (isCompetitionActive()) {
                         updatePortfolioPeak(totalUsd);
                     }
-                } catch { /* silently ignore sync errors */ }
+                } catch (err: any) {
+                    this.addLog('SYSTEM', `⚠️ [TWAK] Failed to sync on-chain balance: ${err?.message || err}`, 'warning-line');
+                }
                 return;
             }
         } finally {
