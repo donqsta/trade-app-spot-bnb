@@ -273,8 +273,8 @@ class BotEngine {
     public botRunning = false;
     public confidenceThreshold = 70;
     public leverage = 1;
-    public riskRatio = 1.0; // 100% of per-pair allocation — on-chain spot, no leverage
-    public orderSizeMultiplier = 3.0; // Global multiplier on SMART QUANT order size (3.0 = triple). Adjustable via API.
+    public riskRatio = 0.10; // 10% of per-pair allocation per entry — leaves room for DCA
+    public orderSizeMultiplier = 1.0; // No extra multiplier by default. Adjust via UI if needed.
     public tpAtrMultiplier = 2.0;
     public slAtrMultiplier = 1.5;
     public smartOrderAdjustment = true; // Smart Quant dynamic risk and trailing stop

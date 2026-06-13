@@ -28,15 +28,15 @@ const PAIR_TO_BSC_TOKEN: Record<string, string> = {
     // Chainlink LINK — BEP-20 on BSC
     LINKUSDT:  '0xF8A0BF9cF54Bb92F17374d9e9A321E6a111a51bD',
     // AAVE — BEP-20 on BSC
-    AAVEUSDT:  '0xfb6115445Bff7b52FeB98787716E176B1C0A2bd8',
-    // FLOKI — BEP-20 on BSC
-    FLOKIUSDT: '0xfb5B838b6cfEEdC2873aB27866079AC55363D37A',
+    AAVEUSDT:  '0xfb6115445Bff7b52FeB98650c87F44907e58F802',
+    // FLOKI — BEP-20 on BSC (correct address ends in 7E not 7A)
+    FLOKIUSDT: '0xfb5B838b6cfEEdC2873aB27866079AC55363D37E',
     // SHIB — BEP-20 on BSC
-    SHIBUSDT:  '0x2859e4544C4bB03966803b044A93563Bd2D0DD4D',
+    SHIBUSDT:  '0x2859e4544C4bbB038793e790226057B1AA79434C',
     // DOT — BEP-20 on BSC
     DOTUSDT:   '0x7083609fCE4d1d8Dc0C979AAb8c869Ea2C873402',
     // UNI — BEP-20 on BSC
-    UNIUSDT:   '0xBf5140A22578168FD562DCcF235E5D43A02ce9B1',
+    UNIUSDT:   '0xBf5140A22578168FD56BCbCCEE7088B935634125',
     // INJ — BEP-20 on BSC
     INJEDT:    '0xa2B726B1145A4773F68593CF171187d8EBe4d495',
     // FET — BEP-20 on BSC
@@ -124,11 +124,10 @@ export class TWAKBscClient {
     private static _rateLimitedUntil = 0;
     private static _callCount = 0;
     private static _callWindowStart = 0;
-    private readonly walletPassword?: string;
 
-    constructor(walletPassword?: string) {
-        this.walletPassword = walletPassword || process.env.TWAK_WALLET_PASSWORD;
-    }
+    // No walletPassword field — TWAK CLI reads TWAK_WALLET_PASSWORD from env automatically.
+    // Passing --password on the CLI exposes it in shell history (TWAK's own warning).
+    constructor(_unused?: string) {}
 
     static isRateLimited(): boolean {
         return Date.now() < TWAKBscClient._rateLimitedUntil;
@@ -140,22 +139,24 @@ export class TWAKBscClient {
         }
 
         const fullArgs = [...args, '--json'];
-
-        const needsWallet = args.some(a =>
-            ['swap', 'transfer', 'compete'].includes(a)
-        );
-        if (needsWallet && this.walletPassword) {
-            fullArgs.push('--password', this.walletPassword);
-        }
+        // NOTE: do NOT add --password here. TWAK CLI reads TWAK_WALLET_PASSWORD
+        // from the environment; passing it as a CLI flag causes a deprecation
+        // warning and in some versions a VALIDATION_ERROR.
 
         try {
             const { stdout, stderr } = await execFileAsync(TWAK_BIN, fullArgs, {
                 timeout: 45_000,
                 shell: TWAK_SHELL,
+                // Forward the full environment so TWAK_WALLET_PASSWORD is visible
                 env: { ...process.env },
             });
 
-            if (stderr && stderr.includes('rate limit')) {
+            // Filter stderr: "Note:" lines are advisory warnings, not errors.
+            const errLines = (stderr || '').split('\n').filter(
+                l => l.trim() && !l.trim().startsWith('Note:')
+            );
+
+            if (errLines.some(l => l.toLowerCase().includes('rate limit'))) {
                 TWAKBscClient._rateLimitedUntil = Date.now() + 60_000;
                 throw new Error('TWAK rate limited');
             }
@@ -164,8 +165,14 @@ export class TWAKBscClient {
             if (!output) throw new Error('TWAK returned empty response');
             return JSON.parse(output);
         } catch (e: any) {
-            const msg = e.stderr || e.stdout || e.message || String(e);
-            throw new Error(`TWAK CLI error [${args.join(' ')}]: ${msg.slice(0, 300)}`);
+            // e.stderr may contain "Note:" advisory lines — strip them before surfacing.
+            const rawErr: string = e.stderr || e.stdout || e.message || String(e);
+            const cleanErr = rawErr
+                .split('\n')
+                .filter(l => !l.trim().startsWith('Note:'))
+                .join(' ')
+                .trim();
+            throw new Error(`TWAK CLI error [${args.join(' ')}]: ${cleanErr.slice(0, 300)}`);
         }
     }
 
