@@ -20,7 +20,7 @@
 import fs from 'fs';
 import path from 'path';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const FILENAME = 'bot-state.json';
 
 function dataDir(): string {
@@ -72,6 +72,9 @@ export interface PersistedBotState {
     marginUsed: number;
     marginFree: number;
     initialCapital: number;
+
+    // Open positions — restored on boot so they survive deploys
+    openPositions: any[];
 
     // Trading transcripts (capped sizes to keep snapshot small)
     tradeHistory: any[];
@@ -141,6 +144,9 @@ export function buildSnapshot(engine: any): PersistedBotState {
         marginFree: engine.marginFree,
         initialCapital: engine.initialCapital,
 
+        // Persist open positions (cap at 50 — safety guard for snapshot size)
+        openPositions: tailCap(engine.openPositions, 50),
+
         tradeHistory: tailCap(engine.tradeHistory, 200),
         orderHistory: tailCap(engine.orderHistory, 200),
         logs: tailCap(engine.logs, 100),
@@ -201,6 +207,11 @@ export function applySnapshot(engine: any, snap: PersistedBotState): void {
     engine.marginUsed = snap.marginUsed ?? engine.marginUsed;
     engine.marginFree = snap.marginFree ?? engine.marginFree;
     engine.initialCapital = snap.initialCapital ?? engine.initialCapital;
+
+    // Restore open positions — price/pnl will be refreshed on next monitoring tick
+    if (Array.isArray(snap.openPositions) && snap.openPositions.length > 0) {
+        engine.openPositions = snap.openPositions;
+    }
 
     engine.tradeHistory = snap.tradeHistory || [];
     engine.orderHistory = snap.orderHistory || [];

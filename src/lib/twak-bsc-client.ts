@@ -18,39 +18,71 @@ const execFileAsync = promisify(execFile);
 const TWAK_BIN = 'twak';
 const TWAK_SHELL = process.platform === 'win32';
 
-// Mapping from our internal pair symbol (e.g. "BNBUSDT") to BSC token symbol for TWAK
+// Mapping from our internal pair symbol (e.g. "BNBUSDT") to BSC token contract address or supported symbol.
+// Using BEP-20 contract addresses for tokens that TWAK CLI cannot resolve by ticker symbol alone.
 const PAIR_TO_BSC_TOKEN: Record<string, string> = {
+    // Native / well-supported by TWAK as symbol
     BNBUSDT:   'BNB',
-    CAKEUSDT:  'CAKE',
-    LINKUSDT:  'LINK',
-    AAVEUSDT:  'AAVE',
-    FLOKIUSDT: 'FLOKI',
-    SHIBUSDT:  'SHIB',
-    DOTUSDT:   'DOT',
-    UNIUSDT:   'UNI',
-    INJEDT:    'INJ',
-    FETUSDT:   'FET',
-    PENDLEUSDT:'PENDLE',
-    STGUSDT:   'STG',
-    AXSUSDT:   'AXS',
-    COMPUSDT:  'COMP',
-    SNXUSDT:   'SNX',
-    LTCUSDT:   'LTC',
-    ADAUSDT:   'ADA',
-    ETCUSDT:   'ETC',
-    ATOMUSDT:  'ATOM',
-    FILUSDT:   'FIL',
-    LDOUSDT:   'LDO',
-    APEUSDT:   'APE',
-    SUSHIUSDT: 'SUSHI',
-    BATUSDT:   'BAT',
-    ZROUSDT:   'ZRO',
-    BONKUSDT:  'BONK',
-    PENGUUSDT: 'PENGU',
-    BTTUSDT:   'BTT',
-    NFTUSDT:   'NFT',
-    RAYUSDT:   'RAY',
-    YFIUSDT:   'YFI',
+    // PancakeSwap CAKE — BEP-20 contract on BSC
+    CAKEUSDT:  '0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82',
+    // Chainlink LINK — BEP-20 on BSC
+    LINKUSDT:  '0xF8A0BF9cF54Bb92F17374d9e9A321E6a111a51bD',
+    // AAVE — BEP-20 on BSC
+    AAVEUSDT:  '0xfb6115445Bff7b52FeB98787716E176B1C0A2bd8',
+    // FLOKI — BEP-20 on BSC
+    FLOKIUSDT: '0xfb5B838b6cfEEdC2873aB27866079AC55363D37A',
+    // SHIB — BEP-20 on BSC
+    SHIBUSDT:  '0x2859e4544C4bB03966803b044A93563Bd2D0DD4D',
+    // DOT — BEP-20 on BSC
+    DOTUSDT:   '0x7083609fCE4d1d8Dc0C979AAb8c869Ea2C873402',
+    // UNI — BEP-20 on BSC
+    UNIUSDT:   '0xBf5140A22578168FD562DCcF235E5D43A02ce9B1',
+    // INJ — BEP-20 on BSC
+    INJEDT:    '0xa2B726B1145A4773F68593CF171187d8EBe4d495',
+    // FET — BEP-20 on BSC
+    FETUSDT:   '0x031b41e504677879370e9DBcF937283A8691Fa7f',
+    // PENDLE — BEP-20 on BSC
+    PENDLEUSDT:'0xb3Ed0A426155B79B898849803E3B36552f7ED507',
+    // STG — BEP-20 on BSC
+    STGUSDT:   '0xB0D502E938ed5f4df2E681fE6E419ff29631d62b',
+    // AXS — BEP-20 on BSC
+    AXSUSDT:   '0x715D400F88C167884bbCc41C5FeA407ed4D2f8A0',
+    // COMP — BEP-20 on BSC
+    COMPUSDT:  '0x52CE071Bd9b1C4B00A0b92D298c512478CaD67e8',
+    // SNX — BEP-20 on BSC
+    SNXUSDT:   '0x9Ac983826058b8a9C7Aa1C9171441191232E8404',
+    // LTC — BEP-20 on BSC
+    LTCUSDT:   '0x4338665CBB7B2485A8855A139b75D5e34AB0DB94',
+    // ADA — BEP-20 on BSC
+    ADAUSDT:   '0x3EE2200Efb3400fAbB9AacF31297cBdD1d435D47',
+    // ETC — BEP-20 on BSC
+    ETCUSDT:   '0x3d6545b08693daE087E957cb1180ee38B9e3c25E',
+    // ATOM — BEP-20 on BSC
+    ATOMUSDT:  '0x0Eb3a705fc54725037CC9e008bDede697f62F335',
+    // FIL — BEP-20 on BSC
+    FILUSDT:   '0x0D8Ce2A99Bb6e3B7Db580eD848240e4a0F9aE153',
+    // LDO — BEP-20 on BSC
+    LDOUSDT:   '0x986854779804799C1d68867F5E03e601E781e41b',
+    // APE — BEP-20 on BSC
+    APEUSDT:   '0xC762043E211571eB34f1ef377e5e8e76914962f9',
+    // SUSHI — BEP-20 on BSC
+    SUSHIUSDT: '0x947950BcE8Af429be11B7A4a0B6D02FA87FCCaD4',
+    // BAT — BEP-20 on BSC
+    BATUSDT:   '0x101d82428437127bF1608F699CD651e6Abf9766E',
+    // ZRO — BEP-20 on BSC
+    ZROUSDT:   '0x6985884C4392D348587B19cb9eAAf157F13271cd',
+    // BONK — BEP-20 on BSC
+    BONKUSDT:  '0xA697e272a73744b343528C3Bc4702F2565b2F422',
+    // PENGU — BEP-20 on BSC
+    PENGUUSDT: '0xaAB9F5feaA5a7F888Fc4cF6c7a64dFc047F27F47',
+    // BTT — BEP-20 on BSC
+    BTTUSDT:   '0x352Cb5E19b12FC216548a2677bD0fce83BaE434B',
+    // NFT — BEP-20 on BSC
+    NFTUSDT:   '0x20eE7B720f4E4c4FFcB00C4065cdae55271aECCa',
+    // RAY — BEP-20 on BSC (wrapped)
+    RAYUSDT:   '0x6c84a8f1c29108F47a79964b5Fe888D4f4D0dE40',
+    // YFI — BEP-20 on BSC
+    YFIUSDT:   '0x88f1A5ae2A3BF98AEAF342D26B30a79438c9142e',
 };
 
 export function pairToBscToken(pair: string): string {
