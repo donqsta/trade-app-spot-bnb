@@ -131,6 +131,8 @@ export async function POST(req: Request) {
             bot.addLog('SYSTEM', `Order size multiplier configuration: x${clamped.toFixed(2)}`, 'info-line');
         }
 
+
+
         if (typeof data.tpAtrMultiplier === 'number') {
             bot.tpAtrMultiplier = data.tpAtrMultiplier;
         }

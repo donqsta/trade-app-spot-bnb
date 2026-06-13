@@ -274,7 +274,7 @@ class BotEngine {
     public botRunning = false;
     public confidenceThreshold = 70;
     public leverage = 1;
-    public riskRatio = 0.10; // 10% of per-pair allocation per entry — leaves room for DCA
+    public riskRatio = 0.30; // 30% of per-pair allocation per entry — leaves room for DCA
     public orderSizeMultiplier = 1.0; // No extra multiplier by default. Adjust via UI if needed.
     public tpAtrMultiplier = 2.0;
     public slAtrMultiplier = 1.5;
@@ -2414,11 +2414,6 @@ class BotEngine {
             margin = pairBudgetRemaining;
         }
 
-        if (margin > this.marginFree) {
-            this.addLog('BOT', `Cancelled order [${pair}]: Insufficient USDT balance. Required: ${margin.toFixed(2)}, Available: ${this.marginFree.toFixed(2)}`, 'warning-line');
-            return;
-        }
-
         if (margin <= 0) {
             this.addLog('BOT', `Skipping signal [${pair}]: Allocated budget for this pair has run out or is 0.`, 'warning-line');
             return;
@@ -2429,6 +2424,12 @@ class BotEngine {
             const initialFraction = this.dcaCapitalAllocation[0] || 0.2;
             sizeUSDT = margin * initialFraction;
         }
+
+        if (margin > this.marginFree) {
+            this.addLog('BOT', `Cancelled order [${pair}]: Insufficient USDT balance. Required: ${margin.toFixed(2)}, Available: ${this.marginFree.toFixed(2)}`, 'warning-line');
+            return;
+        }
+
         let tokenSize = sizeUSDT / currentPrice;
 
         // Guard: Binance rejects orders below the LOT_SIZE stepSize (error -4003 / "rounds to 0").
@@ -3378,9 +3379,15 @@ class BotEngine {
         if (this.quantOperatorEnabled && this.llmRiskMultiplier !== 1.0) {
             margin *= this.llmRiskMultiplier;
         }
+
+        // Global order-size multiplier
+        if (this.orderSizeMultiplier && this.orderSizeMultiplier !== 1.0) {
+            margin = margin * this.orderSizeMultiplier;
+        }
+
         margin = Math.min(margin, this.marginFree);
 
-        if (margin <= 0 || margin < 6) {
+        if (margin <= 0) {
             this.addLog('BOT', `[CMC Signal] ${pair}: Insufficient margin (${margin.toFixed(2)}) — skipping.`, 'warning-line');
             return;
         }
@@ -3395,6 +3402,16 @@ class BotEngine {
         const sl = currentPrice * (1 - slPct * slMultEff);
         const tp = currentPrice * (1 + tpPct * tpMultEff);
         let sizeUSDT = margin;
+        if (this.dcaEnabled) {
+            const initialFraction = this.dcaCapitalAllocation[0] || 0.2;
+            sizeUSDT = margin * initialFraction;
+        }
+
+        if (margin > this.marginFree) {
+            this.addLog('BOT', `[CMC Signal] ${pair}: Insufficient margin (${margin.toFixed(2)}) — skipping.`, 'warning-line');
+            return;
+        }
+
         let tokenSize = sizeUSDT / currentPrice;
 
         this.addLog('BOT', `[CMC Signal] ${pair}: LONG @ $${currentPrice.toFixed(4)} | SL $${sl.toFixed(4)} (-${(slPct*slMultEff*100).toFixed(2)}%) | TP $${tp.toFixed(4)} (+${(tpPct*tpMultEff*100).toFixed(2)}%) | Size: $${sizeUSDT.toFixed(2)}`, 'buy-line');
@@ -3475,6 +3492,9 @@ class BotEngine {
             entryAtr: currentPrice * slPct, // synthetic ATR proxy
             binanceOrderId,
             slOrderId,
+            dcaStep: this.dcaEnabled ? 1 : undefined,
+            dcaMaxSteps: this.dcaEnabled ? this.dcaMaxSteps : undefined,
+            dcaTotalMargin: this.dcaEnabled ? margin : undefined,
         });
 
         this.addLog('BOT', `📊 New position [${pair}]: LONG ${finalEntryPrice.toLocaleString()} | ${tokenSize.toFixed(6)} tokens | Margin: ${sizeUSDT.toFixed(2)}`, 'buy-line');
