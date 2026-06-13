@@ -144,27 +144,27 @@ class BotEngine {
             ? 'BNBUSDT,CAKEUSDT,LINKUSDT,AAVEUSDT,FLOKIUSDT'
             : 'BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT'
     )).split(',').map(p => p.trim().toUpperCase());
-    public currentPair = 'BTCUSDT';
+    public currentPair = '';
     public currentTimeframe = '15m';
     
     // Dynamic stats maps per pair
-    public livePrices: { [symbol: string]: number } = { BTCUSDT: 0, ETHUSDT: 0, SOLUSDT: 0 };
-    public priceChanges24h: { [symbol: string]: number } = { BTCUSDT: 0, ETHUSDT: 0, SOLUSDT: 0 };
-    public volumes24h: { [symbol: string]: number } = { BTCUSDT: 0, ETHUSDT: 0, SOLUSDT: 0 };
+    public livePrices: { [symbol: string]: number } = {};
+    public priceChanges24h: { [symbol: string]: number } = {};
+    public volumes24h: { [symbol: string]: number } = {};
 
     // Historical data parsed from Binance per pair
-    public historicalCandlesMap: { [symbol: string]: Candle[] } = { BTCUSDT: [], ETHUSDT: [], SOLUSDT: [] };
+    public historicalCandlesMap: { [symbol: string]: Candle[] } = {};
     
     // AI brain state maps
-    public aiBrainTrainedMap: { [symbol: string]: boolean } = { BTCUSDT: false, ETHUSDT: false, SOLUSDT: false };
+    public aiBrainTrainedMap: { [symbol: string]: boolean } = {};
     // T3.6 — 'ensemble' runs all three in-process models in parallel and
     // votes weighted by each model's recent realized winrate. ONNX is
     // unchanged and remains a pinned-only option.
     public modelType: 'knn' | 'logistic' | 'momentum' | 'onnx' | 'ensemble' = 'knn';
     // Which ONNX kind to look for when modelType === 'onnx'.
     public onnxKind: 'xgboost' | 'lightgbm' = 'xgboost';
-    public trainedModelMap: { [symbol: string]: LogisticRegressionModel | null } = { BTCUSDT: null, ETHUSDT: null, SOLUSDT: null };
-    public trainingFeaturesMap: { [symbol: string]: LabeledDataPoint[] } = { BTCUSDT: [], ETHUSDT: [], SOLUSDT: [] };
+    public trainedModelMap: { [symbol: string]: LogisticRegressionModel | null } = {};
+    public trainingFeaturesMap: { [symbol: string]: LabeledDataPoint[] } = {};
     // Logistic in-sample accuracy per pair (0.0–1.0). Used by predictEnsemble to
     // down-weight the Logistic vote when it performs below random (< 0.50).
     private logisticAccuracyMap: { [symbol: string]: number } = {};
@@ -273,7 +273,7 @@ class BotEngine {
     public botRunning = false;
     public confidenceThreshold = 70;
     public leverage = 1;
-    public riskRatio = 0.02; // 2% risk
+    public riskRatio = 0.50; // 50% risk (increased for on-chain/spot trading)
     public orderSizeMultiplier = 2.0; // Global multiplier on SMART QUANT order size (2.0 = double). Adjustable via API.
     public tpAtrMultiplier = 2.0;
     public slAtrMultiplier = 1.5;
@@ -355,11 +355,11 @@ class BotEngine {
     public llmTrailingAggressiveness = 1.0; // scales trailing TP tightness [0.5, 2.0]
     public llmLastDecision: QuantOperatorDecision | null = null;
     public llmLastLatencyMs = 0;
-    public gridActiveMap: { [symbol: string]: boolean } = { BTCUSDT: false, ETHUSDT: false, SOLUSDT: false };
-    public gridOrdersMap: { [symbol: string]: GridOrder[] } = { BTCUSDT: [], ETHUSDT: [], SOLUSDT: [] };
-    public gridCenterPrices: { [symbol: string]: number } = { BTCUSDT: 0, ETHUSDT: 0, SOLUSDT: 0 };
-    public gridUpperBoundaries: { [symbol: string]: number } = { BTCUSDT: 0, ETHUSDT: 0, SOLUSDT: 0 };
-    public gridLowerBoundaries: { [symbol: string]: number } = { BTCUSDT: 0, ETHUSDT: 0, SOLUSDT: 0 };
+    public gridActiveMap: { [symbol: string]: boolean } = {};
+    public gridOrdersMap: { [symbol: string]: GridOrder[] } = {};
+    public gridCenterPrices: { [symbol: string]: number } = {};
+    public gridUpperBoundaries: { [symbol: string]: number } = {};
+    public gridLowerBoundaries: { [symbol: string]: number } = {};
 
     // Simulated ledger
     public balance = 1000.00;
@@ -402,10 +402,10 @@ class BotEngine {
     public logs: SystemLog[] = [];
     
     // WebSocket references per pair (Binance mode)
-    private wsMap: { [symbol: string]: WebSocket | null } = { BTCUSDT: null, ETHUSDT: null, SOLUSDT: null };
+    private wsMap: { [symbol: string]: WebSocket | null } = {};
     private wsHeartbeatInterval: NodeJS.Timeout | null = null;
-    private wsReconnectTimeouts: { [symbol: string]: NodeJS.Timeout | null } = { BTCUSDT: null, ETHUSDT: null, SOLUSDT: null };
-    private lastCandleTimesEvaluated: { [symbol: string]: number | null } = { BTCUSDT: null, ETHUSDT: null, SOLUSDT: null };
+    private wsReconnectTimeouts: { [symbol: string]: NodeJS.Timeout | null } = {};
+    private lastCandleTimesEvaluated: { [symbol: string]: number | null } = {};
     // CMC price feed (bsc_twak mode — replaces Binance WebSocket)
     private cmcFeed: CmcPriceFeed | null = null;
     private candlesSinceLastOptimization = 0;
@@ -419,6 +419,26 @@ class BotEngine {
     private binanceSyncMinIntervalMs = 5000; // hit Binance at most every 5s
 
     constructor() {
+        this.currentPair = this.activePairs[0] || 'BNBUSDT';
+        // Initialize dynamic maps for activePairs
+        this.activePairs.forEach(pair => {
+            this.livePrices[pair] = 0;
+            this.priceChanges24h[pair] = 0;
+            this.volumes24h[pair] = 0;
+            this.historicalCandlesMap[pair] = [];
+            this.aiBrainTrainedMap[pair] = false;
+            this.trainedModelMap[pair] = null;
+            this.trainingFeaturesMap[pair] = [];
+            this.gridActiveMap[pair] = false;
+            this.gridOrdersMap[pair] = [];
+            this.gridCenterPrices[pair] = 0;
+            this.gridUpperBoundaries[pair] = 0;
+            this.gridLowerBoundaries[pair] = 0;
+            this.wsMap[pair] = null;
+            this.wsReconnectTimeouts[pair] = null;
+            this.lastCandleTimesEvaluated[pair] = null;
+        });
+
         this.addLog('SYSTEM', 'Multi-pair Node.js AI-QuantBot Daemon Trading Engine initialized successfully.', 'system-line');
 
         // Phase 5: Try to restore user params, transcripts and cooldowns from
@@ -2402,15 +2422,23 @@ class BotEngine {
 
         // Guard: Binance rejects orders below the LOT_SIZE stepSize (error -4003 / "rounds to 0").
         // Each symbol has a different minimum quantity — e.g. BTC requires ≥0.001 BTC.
-        const minLotSize = this.getMinLotSize(pair);
-        if (tokenSize < minLotSize) {
-            const minNotionalNeeded = Math.ceil(minLotSize * currentPrice * 1.05);
-            this.addLog('BOT', `⚠️ Skipping order [${pair}]: Size too small (${tokenSize.toFixed(6)} < min lot ${minLotSize}). Needs notional ≥${minNotionalNeeded} — increase balance or decrease minimum risk!`, 'warning-line');
-            return;
-        }
-        if (sizeUSDT < 6) {
-            this.addLog('BOT', `⚠️ Skipping order [${pair}]: Notional too small (${sizeUSDT.toFixed(2)} < $6 USDT). Increase allocated balance to place order.`, 'warning-line');
-            return;
+        if (this.liveTradingMode !== 'bsc_twak' && this.liveTradingMode !== 'simulated') {
+            const minLotSize = this.getMinLotSize(pair);
+            if (tokenSize < minLotSize) {
+                const minNotionalNeeded = Math.ceil(minLotSize * currentPrice * 1.05);
+                this.addLog('BOT', `⚠️ Skipping order [${pair}]: Size too small (${tokenSize.toFixed(6)} < min lot ${minLotSize}). Needs notional ≥${minNotionalNeeded} — increase balance or decrease minimum risk!`, 'warning-line');
+                return;
+            }
+            if (sizeUSDT < 6) {
+                this.addLog('BOT', `⚠️ Skipping order [${pair}]: Notional too small (${sizeUSDT.toFixed(2)} < $6 USDT). Increase allocated balance to place order.`, 'warning-line');
+                return;
+            }
+        } else {
+            // Soft guard for on-chain/simulation: prevent zero or negative value swaps
+            if (sizeUSDT <= 0) {
+                this.addLog('BOT', `⚠️ Skipping order [${pair}]: Calculated size is zero or negative (${sizeUSDT.toFixed(2)} USDT).`, 'warning-line');
+                return;
+            }
         }
 
         // LLM Quant Operator can tighten/loosen SL and extend/shrink TP (bounded).
