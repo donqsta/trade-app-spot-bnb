@@ -2138,6 +2138,7 @@ class BotEngine {
      * Run predictions on Server background tick kline close
      */
     private async evaluateLiveSignal(pair: string, candleTime: number) {
+        if (!this.activePairs.includes(pair)) return;
         if (this.lastCandleTimesEvaluated[pair] === candleTime) return;
         this.lastCandleTimesEvaluated[pair] = candleTime;
 
