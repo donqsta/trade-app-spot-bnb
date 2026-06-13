@@ -167,8 +167,30 @@ export class TWAKBscClient {
                     address: walletAddr,
                 });
             }
+        } else if (Array.isArray(result)) {
+            for (const a of result) {
+                if (a.chain === this.chain) {
+                    assets.push({
+                        symbol: a.symbol,
+                        balance: typeof a.balance === 'number' ? a.balance : parseFloat(a.balance || '0'),
+                        usdValue: typeof a.usdValue === 'number' ? a.usdValue : parseFloat(a.usdValue || a.usd_value || '0'),
+                        chain: this.chain,
+                        address: a.address,
+                    });
+                }
+            }
         } else if (Array.isArray(result?.assets)) {
-            return result.assets.filter((a: any) => a.chain === this.chain);
+            for (const a of result.assets) {
+                if (a.chain === this.chain) {
+                    assets.push({
+                        symbol: a.symbol,
+                        balance: typeof a.balance === 'number' ? a.balance : parseFloat(a.balance || '0'),
+                        usdValue: typeof a.usdValue === 'number' ? a.usdValue : parseFloat(a.usdValue || a.usd_value || '0'),
+                        chain: this.chain,
+                        address: a.address,
+                    });
+                }
+            }
         }
 
         return assets;
