@@ -110,7 +110,7 @@ export class TWAKBscClient {
         const fullArgs = [...args, '--json'];
 
         const needsWallet = args.some(a =>
-            ['swap', 'transfer', 'automate', 'compete'].includes(a)
+            ['swap', 'transfer', 'compete'].includes(a)
         );
         if (needsWallet && this.walletPassword) {
             fullArgs.push('--password', this.walletPassword);
