@@ -163,7 +163,18 @@ export class TWAKBscClient {
 
             const output = stdout.trim();
             if (!output) throw new Error('TWAK returned empty response');
-            return JSON.parse(output);
+            
+            // Extract the JSON object or array block if there is progress output before it
+            let jsonString = output;
+            const firstBrace = output.search(/[{[]/);
+            if (firstBrace !== -1) {
+                const lastBraceChar = output[firstBrace] === '{' ? '}' : ']';
+                const lastBrace = output.lastIndexOf(lastBraceChar);
+                if (lastBrace !== -1 && lastBrace > firstBrace) {
+                    jsonString = output.substring(firstBrace, lastBrace + 1);
+                }
+            }
+            return JSON.parse(jsonString);
         } catch (e: any) {
             // e.stderr may contain "Note:" advisory lines — strip them before surfacing.
             const rawErr: string = e.stderr || e.stdout || e.message || String(e);

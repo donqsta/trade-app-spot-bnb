@@ -57,6 +57,7 @@ export interface Position {
     // Cumulative trading fees + funding paid on this position so far (in quote currency).
     // Tracked so that PnL display reflects NET PnL (after costs).
     feesPaid?: number;
+    isClosing?: boolean;
     // T3.3 — which model produced the signal that opened this position.
     // Used by the alpha-decay monitor to attribute realized PnL per model.
     modelType?: 'knn' | 'logistic' | 'momentum' | 'onnx' | 'ensemble';
@@ -2124,6 +2125,15 @@ class BotEngine {
         }
     }
 
+    private formatPrice(price: number | undefined | null): string {
+        if (price == null) return '0';
+        if (price === 0) return '0';
+        const abs = Math.abs(price);
+        if (abs < 0.0001) return price.toFixed(8);
+        if (abs < 1) return price.toFixed(6);
+        return price.toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+    }
+
     /**
      * Run predictions on Server background tick kline close
      */
@@ -2497,7 +2507,7 @@ class BotEngine {
                 tokenSize = swapRes.toAmount > 0 ? swapRes.toAmount : tokenSize;
 
                 if (isCompetitionActive()) recordTrade(swapRes.txHash);
-                this.addLog('BOT', `✅ BSC TWAK Entry filled. Price: ${finalEntryPrice.toLocaleString()} | ${tokenSize.toFixed(6)} ${bscSym} | TX: ${swapRes.txHash.slice(0, 12)}...`, 'buy-line');
+                this.addLog('BOT', `✅ BSC TWAK Entry filled. Price: ${this.formatPrice(finalEntryPrice)} | ${tokenSize.toFixed(6)} ${bscSym} | TX: ${swapRes.txHash.slice(0, 12)}...`, 'buy-line');
 
                 // SL + TP automations
                 await new Promise(r => setTimeout(r, 1500));
@@ -2505,7 +2515,7 @@ class BotEngine {
                     const slAutoId = await twak.placeStopLoss(bscSym, tokenSize, sl);
                     const tpAutoId = await twak.placeTakeProfit(bscSym, tokenSize, tp);
                     slOrderId = `sl_${slAutoId}|tp_${tpAutoId}`;
-                    this.addLog('BOT', `🛡️ BSC TWAK automate: SL $${sl.toLocaleString()} | TP $${tp.toLocaleString()} (IDs: ${slOrderId.slice(0, 30)})`, 'buy-line');
+                    this.addLog('BOT', `🛡️ BSC TWAK automate: SL $${this.formatPrice(sl)} | TP $${this.formatPrice(tp)} (IDs: ${slOrderId.slice(0, 30)})`, 'buy-line');
                 } catch (autoErr: any) {
                     this.addLog('BOT', `⚠️ BSC: Failed to set TWAK automated SL/TP: ${autoErr.message}. Bot will monitor internally.`, 'warning-line');
                 }
@@ -2575,7 +2585,7 @@ class BotEngine {
             reason: `AI Signal Entry [${this.liveTradingMode.toUpperCase()}] ⚡`
         });
 
-        this.addLog('BOT', `⚡ SERVER AUTO-ENTRY: LONG position for ${pair} filled at ${finalEntryPrice.toLocaleString()}!`, 'buy-line');
+        this.addLog('BOT', `⚡ SERVER AUTO-ENTRY: LONG position for ${pair} filled at ${this.formatPrice(finalEntryPrice)}!`, 'buy-line');
     }
 
     /**
@@ -2764,6 +2774,7 @@ class BotEngine {
         for (let i = this.openPositions.length - 1; i >= 0; i--) {
             const pos = this.openPositions[i];
             if (pos.symbol !== pair) continue;
+            if (pos.isClosing) continue; // Skip if already in progress of closing to prevent race condition!
 
             const direction = pos.type === 'LONG' ? 1 : -1;
             
@@ -2821,7 +2832,7 @@ class BotEngine {
                         pos.trailingTier = Math.max(pos.trailingTier || 0, 1);
                         if (pos.sl < pos.entryPrice) {
                             pos.sl = pos.entryPrice;
-                            this.addLog('BOT', `🛡️ SMART QUANT [${pair}]: Profit exceeded 35% of target. Moved Stop Loss to Entry (${pos.entryPrice.toLocaleString()}) - Completely locked out risk!`, 'info-line');
+                            this.addLog('BOT', `🛡️ SMART QUANT [${pair}]: Profit exceeded 35% of target. Moved Stop Loss to Entry (${this.formatPrice(pos.entryPrice)}) - Completely locked out risk!`, 'info-line');
                         }
                     }
 
@@ -2834,7 +2845,7 @@ class BotEngine {
                             const trailStopPrice = pos.peakPrice - 1.2 * atr;
                             if (pos.sl < trailStopPrice) {
                                 pos.sl = trailStopPrice;
-                                this.addLog('BOT', `📈 SMART QUANT [${pair}]: Profit exceeded 70% of target. Activated Trailing Stop (trailing peak ${pos.peakPrice.toLocaleString()} by 1.2×ATR = ${(1.2 * atr).toLocaleString()}) -> New SL: ${pos.sl.toLocaleString()}`, 'info-line');
+                                this.addLog('BOT', `📈 SMART QUANT [${pair}]: Profit exceeded 70% of target. Activated Trailing Stop (trailing peak ${this.formatPrice(pos.peakPrice)} by 1.2×ATR = ${this.formatPrice(1.2 * atr)}) -> New SL: ${this.formatPrice(pos.sl)}`, 'info-line');
                             }
                         }
                     }
@@ -2847,7 +2858,7 @@ class BotEngine {
                         const trailStopPrice = pos.peakPrice - 1.2 * atr;
                         if (pos.sl < trailStopPrice) {
                             pos.sl = trailStopPrice;
-                            this.addLog('BOT', `🚀 SMART QUANT [${pair}]: Trailing Stop following Partial TP -> New SL: ${pos.sl.toLocaleString()}`, 'info-line');
+                            this.addLog('BOT', `🚀 SMART QUANT [${pair}]: Trailing Stop following Partial TP -> New SL: ${this.formatPrice(pos.sl)}`, 'info-line');
                         }
                     }
                 }
@@ -2936,7 +2947,8 @@ class BotEngine {
             let reason = '';
 
             if (pos.type === 'LONG') {
-                if (currentPrice <= pos.sl) {
+                const hasDcaStepsRemaining = this.dcaEnabled && pos.dcaStep != null && pos.dcaStep < (pos.dcaMaxSteps || this.dcaMaxSteps);
+                if (currentPrice <= pos.sl && !hasDcaStepsRemaining) {
                     closed = true;
                     reason = pos.partialClosed ? 'Trailing Stop 🟠' : 'Stop Loss 🔴';
                 } else if (currentPrice >= pos.tp) {
@@ -3019,6 +3031,7 @@ class BotEngine {
                     const twak = this.getTWAKClient();
                     if (twak) {
                         try {
+                            pos.isClosing = true; // Mark as closing
                             // Cancel TWAK automate SL/TP orders first
                             if (pos.slOrderId) {
                                 const ids = pos.slOrderId.split('|');
@@ -3034,9 +3047,11 @@ class BotEngine {
                             if (isCompetitionActive() && sellRes.txHash) {
                                 recordTrade(sellRes.txHash);
                             }
-                            this.addLog('BOT', `✅ BSC TWAK closed position automatically. Price: ${actualExit.toLocaleString()} | TX: ${sellRes.txHash.slice(0, 12)}...`, finalPnL >= 0 ? 'buy-line' : 'sell-line');
+                            this.addLog('BOT', `✅ BSC TWAK closed position automatically. Price: ${this.formatPrice(actualExit)} | TX: ${sellRes.txHash.slice(0, 12)}...`, finalPnL >= 0 ? 'buy-line' : 'sell-line');
                         } catch (e: any) {
-                            this.addLog('BOT', `⚠️ BSC TWAK auto-closing position failed: ${e.message}. Clearing internal record anyway.`, 'warning-line');
+                            this.addLog('BOT', `⚠️ BSC TWAK auto-closing position failed: ${e.message}. Retrying on next tick.`, 'warning-line');
+                            pos.isClosing = false; // Reset flag so it can retry
+                            executeClose = false;  // Keep the position in memory
                         }
                     }
                 } else {
@@ -3207,13 +3222,13 @@ class BotEngine {
         // Log the averaging
         this.addLog('BOT', `📈 DCA SUCCESSFUL [${pair}]: Updated position. Average entry price: ${newEntryPrice.toLocaleString()} | Total size: ${newSize.toFixed(6)} | Total margin: ${newMargin.toFixed(2)}`, 'buy-line');
 
-        // Recalculate SL / TP based on new average entry price
+        // Recalculate SL / TP based on current price (lowest point of DCA) to avoid instant stop-outs
         // Retrieve recent ATR
         const atr = this.liveAtrMap[pair] || pos.entryAtr || (pos.entryPrice * 0.02); // fallback
         const slMultEff = this.quantOperatorEnabled ? this.slAtrMultiplier * this.llmSlTightness : this.slAtrMultiplier;
         const tpMultEff = this.quantOperatorEnabled ? this.tpAtrMultiplier * this.llmTpExtension : this.tpAtrMultiplier;
 
-        let newSl = newEntryPrice - atr * slMultEff;
+        let newSl = currentPrice - atr * slMultEff;
         const newTp = newEntryPrice + atr * tpMultEff;
 
         // Apply swing protection and min SL floor
@@ -3256,7 +3271,7 @@ class BotEngine {
                     const tpAutoId = await twak.placeTakeProfit(bscSym, newSize, newTp);
                     pos.slOrderId = `sl_${slAutoId}|tp_${tpAutoId}`;
                     pos.binanceSlSynced = true;
-                    this.addLog('BOT', `🛡️ BSC TWAK automate updated: SL ${newSl.toLocaleString()} | TP ${newTp.toLocaleString()}`, 'buy-line');
+                    this.addLog('BOT', `🛡️ BSC TWAK automate updated: SL ${this.formatPrice(newSl)} | TP ${this.formatPrice(newTp)}`, 'buy-line');
                 } catch (autoErr: any) {
                     this.addLog('BOT', `⚠️ BSC: Failed to update TWAK automated SL/TP: ${autoErr.message}. Bot will monitor internally.`, 'warning-line');
                     pos.binanceSlSynced = false;
@@ -3467,6 +3482,7 @@ class BotEngine {
     public async closePositionManual(index: number, historyLabel = 'Manual Exit 🚪', orderReason = 'Manual Position Close 🚪') {
         const pos = this.openPositions[index];
         if (!pos) return false;
+        if (pos.isClosing) return false; // Prevent parallel manual close calls!
 
         const rawExit = this.livePrices[pos.symbol] || this.livePrice;
         const exitSide: 'BUY' | 'SELL' = 'SELL';
@@ -3478,11 +3494,13 @@ class BotEngine {
         this.totalFeesPaid += exitFee;
         const exitPrice = slippedExit;
 
+        let executeClose = true;
         if (this.liveTradingMode === 'bsc_twak') {
             // ── BSC on-chain close via TWAK ──────────────────────────────────
             const twak = this.getTWAKClient();
             if (twak) {
                 try {
+                    pos.isClosing = true; // Mark as closing
                     // Cancel TWAK automate SL/TP orders first
                     if (pos.slOrderId) {
                         const ids = pos.slOrderId.split('|');
@@ -3498,14 +3516,18 @@ class BotEngine {
                     if (isCompetitionActive() && sellRes.txHash) {
                         recordTrade(sellRes.txHash);
                     }
-                    this.addLog('BOT', `✅ BSC TWAK closed position. Price: ${actualExit.toLocaleString()} | TX: ${sellRes.txHash.slice(0, 12)}...`, pos.pnl >= 0 ? 'buy-line' : 'sell-line');
+                    this.addLog('BOT', `✅ BSC TWAK closed position. Price: ${this.formatPrice(actualExit)} | TX: ${sellRes.txHash.slice(0, 12)}...`, pos.pnl >= 0 ? 'buy-line' : 'sell-line');
                 } catch (e: any) {
-                    this.addLog('BOT', `⚠️ BSC TWAK position close failed: ${e.message}. Clearing internal record anyway.`, 'warning-line');
+                    this.addLog('BOT', `⚠️ BSC TWAK position close failed: ${e.message}. Retrying manually or automatically.`, 'warning-line');
+                    pos.isClosing = false; // Reset flag so it can retry
+                    executeClose = false;  // Keep the position in memory
                 }
             }
         } else {
             this.balance += pos.margin + netPnl;
         }
+
+        if (!executeClose) return false;
 
         // T3.3 — attribute realized PnL to the model that opened this position.
         const pnlPctManual = pos.margin > 0 ? (netPnl / pos.margin) * 100 : 0;
@@ -4405,7 +4427,7 @@ class BotEngine {
                                 slChanged = true;
                             }
                             if (slChanged) {
-                                this.addLog('SYSTEM', `🧠 [LLM ADJ] Moved SL of ${pos.symbol} to Entry (${pos.entryPrice.toLocaleString()}). Reason: ${adj.reason}`, 'info-line');
+                                this.addLog('SYSTEM', `🧠 [LLM ADJ] Moved SL of ${pos.symbol} to Entry (${this.formatPrice(pos.entryPrice)}). Reason: ${adj.reason}`, 'info-line');
                             }
                         } else if (adj.action === 'TIGHTEN_SL') {
                             // 2-candle entry cooldown: block SL tightening within the first
