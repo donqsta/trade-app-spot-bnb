@@ -83,6 +83,7 @@ export interface Position {
     dcaMaxSteps?: number;
     dcaTotalMargin?: number;
     dcaPriceDropPct?: number;
+    lastDcaAttemptTime?: number;
 }
 
 export interface TradeLog {
@@ -2813,7 +2814,9 @@ class BotEngine {
             if (this.dcaEnabled && pos.type === 'LONG' && pos.dcaStep && pos.dcaStep < (pos.dcaMaxSteps || this.dcaMaxSteps)) {
                 const dropPct = ((pos.entryPrice - currentPrice) / pos.entryPrice) * 100;
                 const requiredDrop = pos.dcaPriceDropPct ?? this.dcaPriceDropPct;
-                if (dropPct >= requiredDrop) {
+                const timeSinceLastDcaAttempt = Date.now() - (pos.lastDcaAttemptTime || 0);
+                if (dropPct >= requiredDrop && timeSinceLastDcaAttempt >= 30000) {
+                    pos.lastDcaAttemptTime = Date.now();
                     const oldMargin = pos.margin;
                     const success = await this.executeDcaStep(pos, currentPrice);
                     if (success) {

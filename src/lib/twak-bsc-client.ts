@@ -14,9 +14,9 @@ import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
 
-// On Windows, npm global binaries (.cmd) require shell:true to execute via execFile.
-const TWAK_BIN = 'twak';
-const TWAK_SHELL = process.platform === 'win32';
+// Use npx @trustwallet/cli to ensure the command runs even if the global twak package is not in the system PATH.
+const TWAK_BIN = 'npx';
+const TWAK_SHELL = true;
 
 // Mapping from our internal pair symbol (e.g. "BNBUSDT") to BSC token contract address or supported symbol.
 // Using BEP-20 contract addresses for tokens that TWAK CLI cannot resolve by ticker symbol alone.
@@ -138,7 +138,7 @@ export class TWAKBscClient {
             throw new Error('TWAK rate limited, retry later');
         }
 
-        const fullArgs = [...args, '--json'];
+        const fullArgs = ['@trustwallet/cli', ...args, '--json'];
         // NOTE: do NOT add --password here. TWAK CLI reads TWAK_WALLET_PASSWORD
         // from the environment; passing it as a CLI flag causes a deprecation
         // warning and in some versions a VALIDATION_ERROR.
