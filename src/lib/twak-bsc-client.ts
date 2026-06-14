@@ -286,8 +286,9 @@ export class TWAKBscClient {
         amountUsdt: number,
         toSymbol: string,
     ): Promise<{ toAmount: number; price: number }> {
+        const formattedAmount = Number(amountUsdt.toFixed(1)).toString();
         const result = await this.run([
-            'swap', String(amountUsdt), 'USDT', toSymbol,
+            'swap', formattedAmount, 'USDT', toSymbol,
             '--chain', this.chain,
             '--quote-only',
         ]);
@@ -302,8 +303,9 @@ export class TWAKBscClient {
         toSymbol: string,
         slippagePct = 1,
     ): Promise<SwapResult> {
+        const formattedAmount = Number(amountUsdt.toFixed(1)).toString();
         const result = await this.run([
-            'swap', String(amountUsdt), 'USDT', toSymbol,
+            'swap', formattedAmount, 'USDT', toSymbol,
             '--chain', this.chain,
             '--slippage', String(slippagePct),
         ]);
@@ -324,8 +326,9 @@ export class TWAKBscClient {
         fromSymbol: string,
         slippagePct = 1,
     ): Promise<SwapResult> {
+        const formattedAmount = Number(tokenAmount.toFixed(1)).toString();
         const result = await this.run([
-            'swap', String(tokenAmount), fromSymbol, 'USDT',
+            'swap', formattedAmount, fromSymbol, 'USDT',
             '--chain', this.chain,
             '--slippage', String(slippagePct),
         ]);
@@ -339,6 +342,7 @@ export class TWAKBscClient {
             executedPrice: tokenAmount > 0 ? usdtReceived / tokenAmount : 0,
         };
     }
+
 
     // ─── Automate (Limit / Stop-Loss orders) ─────────────────────────────────
 

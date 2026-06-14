@@ -138,7 +138,7 @@ export interface OrderLog {
 
 class BotEngine {
     private ai = new AIEngine();
-    
+
     // Server state
     public activePairs = (process.env.PAIRS || (
         process.env.TWAK_WALLET_PASSWORD || process.env.TWAK_AGENT_WALLET
@@ -147,7 +147,7 @@ class BotEngine {
     )).split(',').map(p => p.trim().toUpperCase());
     public currentPair = '';
     public currentTimeframe = '15m';
-    
+
     // Dynamic stats maps per pair
     public livePrices: { [symbol: string]: number } = {};
     public priceChanges24h: { [symbol: string]: number } = {};
@@ -155,7 +155,7 @@ class BotEngine {
 
     // Historical data parsed from Binance per pair
     public historicalCandlesMap: { [symbol: string]: Candle[] } = {};
-    
+
     // AI brain state maps
     public aiBrainTrainedMap: { [symbol: string]: boolean } = {};
     // T3.6 — 'ensemble' runs all three in-process models in parallel and
@@ -294,7 +294,7 @@ class BotEngine {
     // Momentum exhaustion signal per pair, refreshed each candle close.
     // Consumed inside updatePositionsLivePnL to close exhausted winners early.
     public momentumExitSignalMap: Record<string, { long: boolean; short: boolean }> = {};
-    
+
     // Binance API Configuration
     public liveTradingMode: 'simulated' | 'testnet' | 'mainnet' | 'bsc_twak' = 'simulated';
     public binanceApiKey = (process.env.BINANCE_API_KEY || '').trim().replace(/\r/g, '');
@@ -369,7 +369,7 @@ class BotEngine {
     public openPositions: Position[] = [];
     public tradeHistory: TradeLog[] = [];
     public orderHistory: OrderLog[] = [];
-    
+
     // Issue 9, 8, 12 properties
     public gridSpacingAtrMultiplier = 1.0;
     // Made public so the persistence layer (Phase 5) can snapshot/restore them.
@@ -398,10 +398,10 @@ class BotEngine {
     public takerFeeRate = 0.0010;        // 0.1% per fill (Spot default)
     public slippageBps = 2;              // 2 bps = 0.02% adverse slippage per market fill
     public totalFeesPaid = 0;
-    
+
     // Logs capped to 400 lines
     public logs: SystemLog[] = [];
-    
+
     // WebSocket references per pair (Binance mode)
     private wsMap: { [symbol: string]: WebSocket | null } = {};
     private wsHeartbeatInterval: NodeJS.Timeout | null = null;
@@ -487,7 +487,7 @@ class BotEngine {
                             this.addLog('SYSTEM', `💰 Competition guard init: portfolio $${total.toFixed(2)} USDT on BSC.`, 'info-line');
                         }
                     })
-                    .catch(() => {});
+                    .catch(() => { });
             }
         }
 
@@ -693,15 +693,15 @@ class BotEngine {
      */
     private onnxCandleLimitFor(tf: string): number {
         const limits: Record<string, number> = {
-            '1m':  12_000,  // ~8 days  (Binance caps at ~1000/req but trainer paginates)
-            '3m':   8_000,  // ~17 days
-            '5m':   8_000,  // ~28 days
-            '15m':  5_000,  // ~52 days (~7.5 weeks)
-            '30m':  4_000,  // ~83 days (~12 weeks)
-            '1h':   3_000,  // ~125 days (~4 months)
-            '2h':   2_000,  // ~166 days
-            '4h':   1_500,  // ~250 days
-            '1d':     500,  // ~500 days
+            '1m': 12_000,  // ~8 days  (Binance caps at ~1000/req but trainer paginates)
+            '3m': 8_000,  // ~17 days
+            '5m': 8_000,  // ~28 days
+            '15m': 5_000,  // ~52 days (~7.5 weeks)
+            '30m': 4_000,  // ~83 days (~12 weeks)
+            '1h': 3_000,  // ~125 days (~4 months)
+            '2h': 2_000,  // ~166 days
+            '4h': 1_500,  // ~250 days
+            '1d': 500,  // ~500 days
         };
         return limits[tf] ?? 5_000;
     }
@@ -798,20 +798,20 @@ class BotEngine {
             const candles = await this.fetchBinanceSpotKlines(pair, '1h', 250);
             if (!candles || candles.length < 200) return null;
             const closes = candles.map(c => c.close);
-            
+
             const ema50Series = this.ai.calculateEMA(closes, 50);
             const ema200Series = this.ai.calculateEMA(closes, 200);
-            
+
             const lastClose = closes[closes.length - 1];
             const ema50 = ema50Series[ema50Series.length - 1];
             const ema200 = ema200Series[ema200Series.length - 1];
-            
+
             if (ema50 === null || ema200 === null) return null;
-            
+
             let bias: -1 | 0 | 1 = 0;
             if (lastClose > ema50 && ema50 > ema200) bias = 1;
             else if (lastClose < ema50 && ema50 < ema200) bias = -1;
-            
+
             return { bias };
         } catch {
             return null;
@@ -854,19 +854,19 @@ class BotEngine {
 
     private getMinLotSize(symbol: string): number {
         const sym = symbol.toUpperCase();
-        if (sym.includes('BTC'))  return 0.001;
-        if (sym.includes('ETH'))  return 0.001;
-        if (sym.includes('SOL'))  return 0.1;
-        if (sym.includes('BNB'))  return 0.01;
+        if (sym.includes('BTC')) return 0.001;
+        if (sym.includes('ETH')) return 0.001;
+        if (sym.includes('SOL')) return 0.1;
+        if (sym.includes('BNB')) return 0.01;
         if (sym.includes('AVAX')) return 0.1;
         if (sym.includes('LINK')) return 0.1;
-        if (sym.includes('DOT'))  return 0.1;
+        if (sym.includes('DOT')) return 0.1;
         if (sym.includes('MATIC') || sym.includes('POL')) return 1;
-        if (sym.includes('XRP'))  return 1;
+        if (sym.includes('XRP')) return 1;
         if (sym.includes('DOGE')) return 1;
-        if (sym.includes('ADA'))  return 1;
-        if (sym.includes('TRX'))  return 1;
-        if (sym.includes('LTC'))  return 0.01;
+        if (sym.includes('ADA')) return 1;
+        if (sym.includes('TRX')) return 1;
+        if (sym.includes('LTC')) return 0.01;
         return 0.001;
     }
 
@@ -890,7 +890,7 @@ class BotEngine {
     public calculateSwingPrice(symbol: string, type: 'LONG' | 'SHORT', lookback = 15): number {
         const candles = this.historicalCandlesMap[symbol] || [];
         if (candles.length === 0) return 0;
-        
+
         const recentCandles = candles.slice(-lookback);
         if (type === 'LONG') {
             return Math.min(...recentCandles.map(c => c.low));
@@ -907,14 +907,14 @@ class BotEngine {
         const translatedMessage = this.translateLogMessage(message);
         const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
         const newLog = { time: timeStr, source, message: translatedMessage, styleClass };
-        
+
         this.logs.push(newLog);
-        
+
         // Cap logs length to avoid memory leaks
         if (this.logs.length > 400) {
             this.logs.shift();
         }
-        
+
         console.log(`[${timeStr}] [${source}] ${translatedMessage}`);
     }
 
@@ -939,7 +939,7 @@ class BotEngine {
             oldWs.close();
             this.wsMap[pair] = null;
         }
-        
+
         const oldTimeout = this.wsReconnectTimeouts[pair];
         if (oldTimeout) {
             clearTimeout(oldTimeout);
@@ -951,7 +951,7 @@ class BotEngine {
             const url = `https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${timeframe}&limit=500`;
             const res = await fetch(url);
             if (!res.ok) throw new Error(`Failed to call Binance API for ${pair}`);
-            
+
             const raw = await res.json() as any[];
             this.historicalCandlesMap[pair] = raw.map(c => ({
                 time: c[0] / 1000,
@@ -967,12 +967,12 @@ class BotEngine {
 
             // Connect live WebSocket stream
             this.connectBinanceWS(pair, timeframe);
-            
+
             const lastCandle = this.historicalCandlesMap[pair][this.historicalCandlesMap[pair].length - 1];
             this.livePrices[pair] = lastCandle.close;
-            
+
             this.addLog('SYSTEM', `Loaded data for ${pair} (${this.historicalCandlesMap[pair].length} candles). Live WS is ready.`, 'system-line');
-            
+
             // Train AI on the pair in background — ONNX models are trained
             // out-of-process (ml/train.py), so we skip here.
             if (this.modelType !== 'onnx') {
@@ -980,7 +980,7 @@ class BotEngine {
             } else {
                 this.aiBrainTrainedMap[pair] = true;
             }
-            
+
             return true;
         } catch (error: any) {
             this.addLog('SYSTEM', `Error loading Binance data for ${pair}: ${error.message}`, 'warning-line');
@@ -1012,11 +1012,11 @@ class BotEngine {
             const arr: any[][] = await res.json();
             if (!Array.isArray(arr) || arr.length === 0) return null;
             return arr.map((k) => ({
-                time:   Math.floor(Number(k[0]) / 1000),
-                open:   parseFloat(k[1]),
-                high:   parseFloat(k[2]),
-                low:    parseFloat(k[3]),
-                close:  parseFloat(k[4]),
+                time: Math.floor(Number(k[0]) / 1000),
+                open: parseFloat(k[1]),
+                high: parseFloat(k[2]),
+                low: parseFloat(k[3]),
+                close: parseFloat(k[4]),
                 volume: parseFloat(k[5]),
             }));
         } catch {
@@ -1041,9 +1041,9 @@ class BotEngine {
             if (!q.price || q.price <= 0) throw new Error(`CMC returned price 0 for ${cmcSym} — could be incorrect symbol or API quota exhausted`);
 
             // Seed price + 24h stats
-            this.livePrices[pair]      = q.price;
+            this.livePrices[pair] = q.price;
             this.priceChanges24h[pair] = q.percentChange24h;
-            this.volumes24h[pair]      = q.volume24h;
+            this.volumes24h[pair] = q.volume24h;
 
             if (binanceCandles && binanceCandles.length >= 10) {
                 // Use real Binance Spot OHLCV for display — looks correct and covers all tokens
@@ -1076,20 +1076,20 @@ class BotEngine {
                     // Deterministic noise via sine waves (avoids Math.random for consistency)
                     const n1 = noiseAmp * Math.sin(i * 2.3999 + 0.7);
                     const n2 = noiseAmp * Math.sin(i * 1.6180 + 1.4);
-                    const adjOpen  = openPrice  + n1;
+                    const adjOpen = openPrice + n1;
                     const adjClose = closePrice + n2;
                     const bodyHigh = Math.max(adjOpen, adjClose);
-                    const bodyLow  = Math.min(adjOpen, adjClose);
+                    const bodyLow = Math.min(adjOpen, adjClose);
                     const bodySize = bodyHigh - bodyLow;
                     // Wick = 40-80% of body to look like real candles
                     const wickFrac = 0.4 + 0.4 * ((i * 7 + 3) % 10) / 10;
                     const wick = bodySize * wickFrac;
                     return {
-                        time:   now - (499 - i) * INTERVAL,
-                        open:   adjOpen,
-                        high:   bodyHigh + wick,
-                        low:    bodyLow  - wick,
-                        close:  adjClose,
+                        time: now - (499 - i) * INTERVAL,
+                        open: adjOpen,
+                        high: bodyHigh + wick,
+                        low: bodyLow - wick,
+                        close: adjClose,
                         volume: (q.volume24h / stepsIn24h) * (0.5 + ((i * 7) % 13) / 13),
                     };
                 });
@@ -1130,9 +1130,9 @@ class BotEngine {
         // so the chart always has 500 candles while still reflecting the latest price.
         this.cmcFeed.onPriceUpdate = (upd: CmcPriceUpdate) => {
             const pair = upd.symbol;
-            this.livePrices[pair]      = upd.price;
+            this.livePrices[pair] = upd.price;
             this.priceChanges24h[pair] = upd.change24h;
-            this.volumes24h[pair]      = upd.volume24h;
+            this.volumes24h[pair] = upd.volume24h;
 
             const history = this.historicalCandlesMap[pair];
             if (history && history.length > 0 && upd.price > 0) {
@@ -1143,15 +1143,15 @@ class BotEngine {
                 if (now - last.time >= 30) {
                     const openP = last.close;
                     const spreadMin = Math.max(upd.price * 0.0005, Number.EPSILON);
-                    const bodyHigh  = Math.max(openP, upd.price);
-                    const bodyLow   = Math.min(openP, upd.price);
+                    const bodyHigh = Math.max(openP, upd.price);
+                    const bodyLow = Math.min(openP, upd.price);
                     const wick = Math.max(Math.abs(upd.price - openP) * 0.3, spreadMin);
                     history.push({
-                        time:   now,
-                        open:   openP,
-                        high:   bodyHigh + wick,
-                        low:    bodyLow  - wick,
-                        close:  upd.price,
+                        time: now,
+                        open: openP,
+                        high: bodyHigh + wick,
+                        low: bodyLow - wick,
+                        close: upd.price,
                         volume: upd.volume24h / (24 * 120),
                     });
                     if (history.length > 500) history.shift();
@@ -1159,8 +1159,8 @@ class BotEngine {
                     // Update current candle in-place
                     history[history.length - 1] = {
                         ...last,
-                        high:  Math.max(last.high, upd.price),
-                        low:   Math.min(last.low, upd.price),
+                        high: Math.max(last.high, upd.price),
+                        low: Math.min(last.low, upd.price),
                         close: upd.price,
                     };
                 }
@@ -1203,23 +1203,23 @@ class BotEngine {
 
     private connectBinanceWS(pair: string, timeframe: string) {
         const wsUrl = `wss://stream.binance.com:9443/ws/${pair.toLowerCase()}@kline_${timeframe}`;
-        
+
         try {
             const ws = new WebSocket(wsUrl);
             this.wsMap[pair] = ws;
-            
+
             ws.onmessage = (event: MessageEvent) => {
                 // Self-healing check for orphaned WebSocket connections
                 if (timeframe !== this.currentTimeframe) {
                     try {
                         (event.target as WebSocket).close();
-                    } catch (e) {}
+                    } catch (e) { }
                     return;
                 }
 
                 const data = JSON.parse(event.data);
                 const kline = data.k;
-                
+
                 const liveCandle: Candle = {
                     time: kline.t / 1000,
                     open: parseFloat(kline.o),
@@ -1241,7 +1241,7 @@ class BotEngine {
                 } else {
                     candles.push(liveCandle);
                     candles.shift();
-                    
+
                     // Candle closed!
                     this.addLog('SYSTEM', `${timeframe} candle of ${pair} closed at price ${liveCandle.open}. Running signal evaluation...`, 'system-line');
                     // Adaptive SL/TP: refresh ATR + run candle-close protective checks.
@@ -1341,7 +1341,7 @@ class BotEngine {
         try {
             this.currentTimeframe = timeframe;
             this.addLog('SYSTEM', `TIMEFRAME CHANGE: Reloading all 3 trading pairs on timeframe ${timeframe}...`, 'system-line');
-            
+
             const promises = this.activePairs.map(pair => this.loadPairData(pair, timeframe));
             await Promise.all(promises);
 
@@ -1445,10 +1445,10 @@ class BotEngine {
             const logAccFraction = correct / labeledData.length;
             this.logisticAccuracyMap[symbol] = logAccFraction;
             const logAcc = (logAccFraction * 100).toFixed(1);
-            
+
             // Also trigger background Python ONNX training so the 4th vote is updated
             this.trainOnnxAsync(symbol, this.currentTimeframe);
-            
+
             this.addLog('AI', `Ensemble [${symbol}] trained successfully: KNN ${labeledData.length} samples + Logistic (acc ${logAcc}%) + Momentum (stateless) + ONNX (training in background).`, 'buy-line');
             accuracy = `Ensemble (Logistic ${logAcc}%, KNN ${labeledData.length}, Momentum dyn, ONNX background)`;
         } else {
@@ -1547,7 +1547,7 @@ class BotEngine {
         const agreeing = votes.filter(v => v.signal === signal).length;
         const consensus: EnsembleSignalContext['consensus'] =
             agreeing === modelCount ? 'unanimous' :
-            agreeing >= Math.ceil(modelCount / 2) ? 'majority' : 'split';
+                agreeing >= Math.ceil(modelCount / 2) ? 'majority' : 'split';
 
         const dirStr = (s: number) => s === 1 ? 'L' : s === -1 ? 'S' : 'H';
         const ensembleCtx: EnsembleSignalContext = {
@@ -1555,9 +1555,9 @@ class BotEngine {
             direction,
             consensus,
             modelVotes: {
-                knn:  { dir: dirStr(knn.signal),     confidence: knn.confidence },
-                log:  { dir: dirStr(logistic.signal), confidence: logistic.confidence, accuracy: Math.round(logAcc * 100) },
-                mom:  { dir: dirStr(momentum.signal), confidence: momentum.confidence },
+                knn: { dir: dirStr(knn.signal), confidence: knn.confidence },
+                log: { dir: dirStr(logistic.signal), confidence: logistic.confidence, accuracy: Math.round(logAcc * 100) },
+                mom: { dir: dirStr(momentum.signal), confidence: momentum.confidence },
                 onnx: onnxPred ? { dir: dirStr(onnxPred.signal), confidence: onnxPred.confidence } : null
             }
         };
@@ -1612,7 +1612,7 @@ class BotEngine {
 
         let backtestBalance = 10000.00;
         let activePos: any = null;
-        
+
         const equityCurve: { time: number; value: number }[] = [];
         const equityCurveBH: { time: number; value: number }[] = [];
         const trades: TradeLog[] = [];
@@ -1694,7 +1694,7 @@ class BotEngine {
                         // --- AFTER PARTIAL TP ---
                         // Here targetPriceDiff is the expanded TP2 distance (which is 2x the original target diff).
                         // So original target diff = targetPriceDiff / 2.
-                        
+
                         // Tier 4: Profit > 125% of original target (progress > 62.5% of new TP) -> Lock 50% of original profit
                         if (currentPriceDiff > targetPriceDiff * 0.625) {
                             const lockProfitPrice = entry + dir * (targetPriceDiff * 0.25);
@@ -1730,7 +1730,7 @@ class BotEngine {
                 let closed = false;
                 let pnl = 0;
                 let reason = '';
-                
+
                 if (type === 1) { // Long
                     // DCA check in backtest!
                     if (this.dcaEnabled && activePos.dcaStep && activePos.dcaStep < (activePos.dcaMaxSteps || this.dcaMaxSteps)) {
@@ -1785,7 +1785,7 @@ class BotEngine {
                                 activePos.trailingTier = 0;
 
                                 trades.push({
-                                    time: new Date(candleTime * 1000).toLocaleString('vi-VN', {hour:'2-digit', minute:'2-digit'}),
+                                    time: new Date(candleTime * 1000).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                                     pair: symbol,
                                     type: 'DCA Buy',
                                     side: 'BUY Long 🛒',
@@ -1816,14 +1816,14 @@ class BotEngine {
                             const partialPnL = halfSize * (tpExit - entry) - exitFee;
                             backtestBalance += partialPnL;
                             activePos.feesPaid = (activePos.feesPaid || 0) + exitFee;
-                            
+
                             activePos.size = halfSize;
                             activePos.sl = entry; // Move SL to Entry
                             activePos.tp = entry + Math.abs(originalTp - entry) * 2; // Extend TP2
                             activePos.partialClosed = true;
 
                             trades.push({
-                                time: new Date(candleTime * 1000).toLocaleString('vi-VN', {hour:'2-digit', minute:'2-digit'}),
+                                time: new Date(candleTime * 1000).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                                 pair: symbol,
                                 type: 'Partial Take Profit',
                                 side: 'Exit Long',
@@ -1859,14 +1859,14 @@ class BotEngine {
                             const partialPnL = halfSize * (entry - tpExit) - exitFee;
                             backtestBalance += partialPnL;
                             activePos.feesPaid = (activePos.feesPaid || 0) + exitFee;
-                            
+
                             activePos.size = halfSize;
                             activePos.sl = entry; // Move SL to Entry
                             activePos.tp = entry - Math.abs(originalTp - entry) * 2; // Extend TP2
                             activePos.partialClosed = true;
 
                             trades.push({
-                                time: new Date(candleTime * 1000).toLocaleString('vi-VN', {hour:'2-digit', minute:'2-digit'}),
+                                time: new Date(candleTime * 1000).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                                 pair: symbol,
                                 type: 'Partial Take Profit',
                                 side: 'Exit Short',
@@ -1899,9 +1899,9 @@ class BotEngine {
                     totalTrades++;
                     if (pnl > 0) wins++;
                     tradePnLs.push(pnl);
-                    
+
                     trades.push({
-                        time: new Date(candleTime * 1000).toLocaleString('vi-VN', {hour:'2-digit', minute:'2-digit'}),
+                        time: new Date(candleTime * 1000).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                         pair: symbol,
                         type: 'Market Exit',
                         side: type === 1 ? 'Exit Long' : 'Exit Short',
@@ -1918,19 +1918,19 @@ class BotEngine {
             // Open position if none active
             if (!activePos) {
                 let pred = { signal: 0, confidence: 50 };
-                
+
                 if (this.modelType === 'onnx') {
                     // Backtest is synchronous (the optimizer calls it 768x), so
                     // we don't run ONNX inference here — it would also be slow.
                     // Use the Momentum proxy in backtest; switch to ONNX live.
-                    pred = this.ai.predictMomentumStrategy(closes.slice(0, candleIndex+1), highs.slice(0, candleIndex+1), lows.slice(0, candleIndex+1), volumes.slice(0, candleIndex+1));
+                    pred = this.ai.predictMomentumStrategy(closes.slice(0, candleIndex + 1), highs.slice(0, candleIndex + 1), lows.slice(0, candleIndex + 1), volumes.slice(0, candleIndex + 1));
                 } else if (this.modelType === 'knn') {
                     pred = this.ai.predictKNN(trainingFeatures, dataPoint.features);
                 } else if (this.modelType === 'logistic') {
                     pred = this.ai.predictLogisticRegression(trainedModel, dataPoint.features, confidenceThreshold);
                 } else {
                     // Issue 3: Pass volumes to Momentum Strategy
-                    pred = this.ai.predictMomentumStrategy(closes.slice(0, candleIndex+1), highs.slice(0, candleIndex+1), lows.slice(0, candleIndex+1), volumes.slice(0, candleIndex+1));
+                    pred = this.ai.predictMomentumStrategy(closes.slice(0, candleIndex + 1), highs.slice(0, candleIndex + 1), lows.slice(0, candleIndex + 1), volumes.slice(0, candleIndex + 1));
                 }
 
                 if (pred.signal === 1 && pred.confidence >= confidenceThreshold) {
@@ -2023,7 +2023,7 @@ class BotEngine {
                     };
 
                     trades.push({
-                        time: new Date(candleTime * 1000).toLocaleString('vi-VN', {hour:'2-digit', minute:'2-digit'}),
+                        time: new Date(candleTime * 1000).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                         pair: symbol,
                         type: 'Market Entry',
                         side: direction === 1 ? 'BUY Long 🟢' : 'SELL Short 🔴',
@@ -2168,7 +2168,7 @@ class BotEngine {
         }
 
         if (this.dailyPnL <= -(this.initialCapital * this.maxDailyDrawdown)) {
-            this.addLog('BOT', `🛑 DAILY LIMIT: Daily drawdown limit reached (${(this.maxDailyDrawdown*100)}%). Paused new trades for the rest of the day to protect capital.`, 'warning-line');
+            this.addLog('BOT', `🛑 DAILY LIMIT: Daily drawdown limit reached (${(this.maxDailyDrawdown * 100)}%). Paused new trades for the rest of the day to protect capital.`, 'warning-line');
             return;
         }
 
@@ -2779,10 +2779,10 @@ class BotEngine {
             if (pos.isClosing) continue; // Skip if already in progress of closing to prevent race condition!
 
             const direction = pos.type === 'LONG' ? 1 : -1;
-            
+
             pos.pnl = direction * pos.size * (currentPrice - pos.entryPrice);
             pos.pnlPercent = (pos.pnl / pos.margin) * 100;
-            
+
             totalUnrealized += pos.pnl;
             marginSum += pos.margin;
 
@@ -2812,7 +2812,7 @@ class BotEngine {
                 pos.lastLlmCheckTime = Date.now();
 
                 this.addLog('BOT', `🔄 Triggering LLM to re-evaluate position ${pair} (Price change: ${(priceChangePct * 100).toFixed(2)}%, Elapsed: ${Math.round(timeSinceLastLlm / 1000)}s)`, 'info-line');
-                
+
                 this.runQuantOperator({ forceAdjustment: true, targetPair: pair }).catch(err => {
                     console.error('Error running Quant Operator on event trigger:', err);
                 });
@@ -2897,10 +2897,10 @@ class BotEngine {
                 const targetPriceDiff = Math.abs(pos.tp - pos.entryPrice);
                 const progress = targetPriceDiff > 0 ? (direction * (currentPrice - pos.entryPrice)) / targetPriceDiff : 0;
                 const atr = this.liveAtrMap[pair];
-                
+
                 // Arm Trailing TP only after the position is already partially closed (beyond TP1)
                 const shouldArmTrailingTp = pos.partialClosed && (progress >= 0.5);
-                
+
                 if (shouldArmTrailingTp && atr && atr > 0) {
                     if (!pos.trailingTpActive) {
                         pos.trailingTpActive = true;
@@ -2963,18 +2963,18 @@ class BotEngine {
                         const partialPnL = halfSize * (tpExitPrice - pos.entryPrice) - exitFee;
                         pos.feesPaid = (pos.feesPaid || 0) + exitFee;
                         this.totalFeesPaid += exitFee;
-                        
+
 
 
                         this.balance += (pos.margin / 2) + partialPnL; // Return 50% margin + profit (fees deducted)
                         pos.size = halfSize;
                         pos.margin = pos.margin / 2;
                         pos.sl = pos.entryPrice; // Move SL to Entry
-                        
+
                         const originalTargetPriceDiff = Math.abs(pos.tp - pos.entryPrice);
                         pos.tp = pos.entryPrice + originalTargetPriceDiff * 2; // Double TP2 target
                         pos.partialClosed = true;
-                        
+
                         const timeStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                         this.tradeHistory.push({
                             time: timeStr,
@@ -2988,7 +2988,7 @@ class BotEngine {
                             status: 'Partial TP 50% 🟢'
                         });
                         this.addLog('BOT', `⚡ SERVER PARTIAL-TP: Partial-TP'd 50% of LONG position ${pos.symbol} at ${currentPrice}. PnL: +${partialPnL.toFixed(2)}. SL moved to Entry, extending TP2!`, 'buy-line');
-                        
+
                         // Update daily realized PnL
                         this.dailyPnL += partialPnL;
                         this.recomputeLedger();
@@ -3039,7 +3039,7 @@ class BotEngine {
                                 const ids = pos.slOrderId.split('|');
                                 for (const idPart of ids) {
                                     const id = idPart.replace(/^(sl_|tp_)/, '');
-                                    if (id) await twak.deleteAutomate(id).catch(() => {});
+                                    if (id) await twak.deleteAutomate(id).catch(() => { });
                                 }
                             }
                             const bscSym = this.bscToken(pos.symbol);
@@ -3098,7 +3098,7 @@ class BotEngine {
                 });
 
                 this.addLog('BOT', `⚡ SERVER AUTO-EXIT: Closed ${pos.type} position ${pos.symbol} at ${currentPrice}. PnL: ${finalPnL >= 0 ? '+' : ''}${finalPnL.toFixed(2)}. Reason: ${reason}`, finalPnL >= 0 ? 'buy-line' : 'sell-line');
-                
+
                 this.openPositions.splice(i, 1);
                 // Phase 5: Flush state on every realized trade — these are the
                 // events users care most about preserving across restarts.
@@ -3261,7 +3261,7 @@ class BotEngine {
                     for (const part of parts) {
                         const id = part.replace(/^(sl_|tp_)/, '');
                         if (id) {
-                            await twak.deleteAutomate(id).catch(() => {});
+                            await twak.deleteAutomate(id).catch(() => { });
                         }
                     }
                 }
@@ -3414,7 +3414,7 @@ class BotEngine {
 
         let tokenSize = sizeUSDT / currentPrice;
 
-        this.addLog('BOT', `[CMC Signal] ${pair}: LONG @ $${currentPrice.toFixed(4)} | SL $${sl.toFixed(4)} (-${(slPct*slMultEff*100).toFixed(2)}%) | TP $${tp.toFixed(4)} (+${(tpPct*tpMultEff*100).toFixed(2)}%) | Size: $${sizeUSDT.toFixed(2)}`, 'buy-line');
+        this.addLog('BOT', `[CMC Signal] ${pair}: LONG @ $${currentPrice.toFixed(4)} | SL $${sl.toFixed(4)} (-${(slPct * slMultEff * 100).toFixed(2)}%) | TP $${tp.toFixed(4)} (+${(tpPct * tpMultEff * 100).toFixed(2)}%) | Size: $${sizeUSDT.toFixed(2)}`, 'buy-line');
 
         // ── BSC TWAK execution (same as standard bsc_twak block) ─────────────
         const twak = this.getTWAKClient();
@@ -3527,7 +3527,7 @@ class BotEngine {
                         const ids = pos.slOrderId.split('|');
                         for (const idPart of ids) {
                             const id = idPart.replace(/^(sl_|tp_)/, '');
-                            if (id) await twak.deleteAutomate(id).catch(() => {});
+                            if (id) await twak.deleteAutomate(id).catch(() => { });
                         }
                     }
                     const bscSym = this.bscToken(pos.symbol);
@@ -3568,7 +3568,7 @@ class BotEngine {
         });
 
         this.addLog('BOT', `Closed Position (${historyLabel}): LONG ${pos.symbol} at ${exitPrice}. PnL: ${pos.pnl >= 0 ? '+' : ''}${pos.pnl.toFixed(2)}`, pos.pnl >= 0 ? 'buy-line' : 'sell-line');
-        
+
         this.orderHistory.push({
             time: timeStr,
             symbol: pos.symbol,
@@ -3582,7 +3582,7 @@ class BotEngine {
         });
 
         this.openPositions.splice(index, 1);
-        
+
         this.recomputeLedger();
         this.persistState(); // Phase 5: capture the manual exit
         return true;
@@ -3611,10 +3611,10 @@ class BotEngine {
         // Portfolio division: 1/N of total simulated balance per pair for Grid
         const totalCapital = this.balance + this.marginUsed;
         const targetPairMargin = totalCapital / this.activePairs.length;
-        
+
         const totalRiskUSDT = targetPairMargin * this.riskRatio * this.orderSizeMultiplier; // risk budget of this pair's allocation (incl. global size multiplier)
         // Spaced across 6 grids
-        const marginPerGrid = (totalRiskUSDT / 6.0); 
+        const marginPerGrid = (totalRiskUSDT / 6.0);
         const sizePerGridUSDT = marginPerGrid; // Spot has no leverage
 
         const timeStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -3772,7 +3772,7 @@ class BotEngine {
             if (dataset.length > 0) {
                 const threshold = this.getLabelThreshold(this.currentTimeframe);
                 const labeledData = this.ai.labelDataset(dataset, closes, 5, threshold);
-                
+
                 if (this.modelType === 'knn') {
                     tempTrainingFeatures = labeledData;
                 } else if (this.modelType === 'logistic') {
@@ -3894,12 +3894,12 @@ class BotEngine {
                 this.riskRatio = bestParams.riskRatio;
                 this.tpAtrMultiplier = bestParams.tpAtrMultiplier;
                 this.slAtrMultiplier = bestParams.slAtrMultiplier;
-                this.addLog('SYSTEM', `🛡️ AUTO-OPTIMIZER: Completed Grid Search [${symbol}] (${testedCount} scenarios, ${validResults} valid). Applied optimal config: Spot (no leverage), Risk ${(this.riskRatio*100).toFixed(1)}%, Confidence: ${this.confidenceThreshold}%, TP ATR: ${this.tpAtrMultiplier}, SL ATR: ${this.slAtrMultiplier}. Expected PnL: ${displayPnL}`, 'buy-line');
+                this.addLog('SYSTEM', `🛡️ AUTO-OPTIMIZER: Completed Grid Search [${symbol}] (${testedCount} scenarios, ${validResults} valid). Applied optimal config: Spot (no leverage), Risk ${(this.riskRatio * 100).toFixed(1)}%, Confidence: ${this.confidenceThreshold}%, TP ATR: ${this.tpAtrMultiplier}, SL ATR: ${this.slAtrMultiplier}. Expected PnL: ${displayPnL}`, 'buy-line');
             } else {
                 this.addLog('SYSTEM', `🛡️ AUTO-OPTIMIZER: Completed Grid Search [${symbol}] (${testedCount} scenarios, ${validResults} valid). No profitable configuration found on current data. Keeping current parameters.`, 'warning-line');
             }
         } else {
-            this.addLog('SYSTEM', `🛡️ AUTO-OPTIMIZER: Completed Grid Search [${symbol}] (${testedCount} scenarios, ${validResults} valid). Recommended config: Spot (no leverage), Risk ${(bestParams.riskRatio*100).toFixed(1)}%, Confidence: ${bestParams.confidenceThreshold}%, TP ATR: ${bestParams.tpAtrMultiplier}, SL ATR: ${bestParams.slAtrMultiplier}. Expected PnL: ${displayPnL}`, 'info-line');
+            this.addLog('SYSTEM', `🛡️ AUTO-OPTIMIZER: Completed Grid Search [${symbol}] (${testedCount} scenarios, ${validResults} valid). Recommended config: Spot (no leverage), Risk ${(bestParams.riskRatio * 100).toFixed(1)}%, Confidence: ${bestParams.confidenceThreshold}%, TP ATR: ${bestParams.tpAtrMultiplier}, SL ATR: ${bestParams.slAtrMultiplier}. Expected PnL: ${displayPnL}`, 'info-line');
         }
 
         return {
@@ -3913,7 +3913,7 @@ class BotEngine {
         if (this.botRunning === running) return;
         this.botRunning = running;
         this.addLog('SYSTEM', `Auto-Bot status update: ${running ? 'RUNNING 🟢' : 'STOPPED 🔴'}`, 'info-line');
-        
+
         if (running) {
             this.activePairs.forEach(pair => {
                 const candles = this.historicalCandlesMap[pair] || [];
@@ -3937,11 +3937,11 @@ class BotEngine {
         for (let i = candles.length - period; i < candles.length; i++) {
             const c = candles[i];
             const prev = candles[i - 1];
-            
-            const tr = prev 
+
+            const tr = prev
                 ? Math.max(c.high - c.low, Math.abs(c.high - prev.close), Math.abs(c.low - prev.close))
                 : c.high - c.low;
-            
+
             sumTR += tr;
             if (c.high > highestHigh) highestHigh = c.high;
             if (c.low < lowestLow) lowestLow = c.low;
@@ -3961,7 +3961,7 @@ class BotEngine {
         for (let i = candles.length - period; i < candles.length; i++) {
             const c = candles[i];
             const prev = candles[i - 1];
-            const tr = prev 
+            const tr = prev
                 ? Math.max(c.high - c.low, Math.abs(c.high - prev.close), Math.abs(c.low - prev.close))
                 : c.high - c.low;
             sumTR += tr;
@@ -4173,7 +4173,7 @@ class BotEngine {
         if (Array.isArray(d.positionAdjustments)) {
             positionAdjustments = d.positionAdjustments.filter(adj => {
                 return adj && typeof adj.symbol === 'string' &&
-                       ['HOLD', 'EXIT', 'TIGHTEN_SL', 'EXTEND_TP', 'MOVE_TO_ENTRY'].includes(adj.action);
+                    ['HOLD', 'EXIT', 'TIGHTEN_SL', 'EXTEND_TP', 'MOVE_TO_ENTRY'].includes(adj.action);
             });
         }
 
@@ -4192,7 +4192,7 @@ class BotEngine {
             targetMetAction: d.targetMetAction === 'PAUSE_NEW_ENTRIES' ? 'PAUSE_NEW_ENTRIES' : 'NORMAL',
             positionAdjustments
         };
-    }    public async runQuantOperator(options?: boolean | { forceAdjustment?: boolean; isCandleClose?: boolean; targetPair?: string }): Promise<void> {
+    } public async runQuantOperator(options?: boolean | { forceAdjustment?: boolean; isCandleClose?: boolean; targetPair?: string }): Promise<void> {
         if (!this.quantOperatorEnabled) return;
 
         let forceAdjustment = false;
@@ -4216,7 +4216,7 @@ class BotEngine {
         this.quantOperatorRunningPairs.add(pair);
         try {
             const timeStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            
+
             // Throttling and event-driven bypass logic:
             // 1. If we have open positions and this is a periodic check (neither forceAdjustment nor isCandleClose is set), skip it.
             //    We rely entirely on event-driven triggers (price movement or 5-min heartbeat) to call runQuantOperator(true) or candle close triggers.
@@ -4249,7 +4249,7 @@ class BotEngine {
             }
 
             this.lastRegimeCheckTime = Date.now();
-            
+
             // Download 100 15m candles directly from Binance as benchmark
             let refCandles: Candle[] = [];
             try {
@@ -4290,7 +4290,7 @@ class BotEngine {
                         type: 'info'
                     });
                     if (this.quantOperatorThoughts.length > 50) this.quantOperatorThoughts.shift();
-                    
+
                     this.addLog('SYSTEM', '💤 [QUANT OPERATOR] Market indicators stable, skipping LLM call to save tokens.', 'info-line');
                     return;
                 }
@@ -4330,8 +4330,8 @@ class BotEngine {
                     const candles = this.historicalCandlesMap[pair] || [];
                     if (candles.length > 0) {
                         const closes = candles.map(c => c.close);
-                        const highs   = candles.map(c => c.high);
-                        const lows    = candles.map(c => c.low);
+                        const highs = candles.map(c => c.high);
+                        const lows = candles.map(c => c.low);
                         const volumes = candles.map(c => c.volume);
                         const dataset2 = this.ai.extractFeatures(closes, highs, lows, volumes);
                         if (dataset2.length > 0) {
@@ -4433,7 +4433,7 @@ class BotEngine {
                         if (index === -1) continue;
                         const pos = this.openPositions[index];
                         const currentPrice = this.livePrices[pos.symbol] || this.livePrice;
-                        
+
                         if (adj.action === 'EXIT') {
                             this.addLog('SYSTEM', `🧠 [LLM ADJ] Early exit for position ${pos.symbol}. Reason: ${adj.reason}`, 'warning-line');
                             try {
@@ -4579,7 +4579,7 @@ class BotEngine {
             // Hysteresis: Regime must be confirmed N consecutive times before switching
             const currentRegimeKey = `${optimalTimeframe}|${userPinned ? this.modelType : optimalModel}|${optimalGridMode}`;
             const activeRegimeKey = `${this.currentTimeframe}|${this.modelType}|${this.gridModeEnabled}`;
-            
+
             const needsChange = currentRegimeKey !== activeRegimeKey;
 
             const sourceTag = decisionSource === 'LLM'
@@ -4738,7 +4738,7 @@ class BotEngine {
     public getFullState() {
         let totalUnrealized = 0;
         this.openPositions.forEach(p => totalUnrealized += p.pnl);
-        
+
         let gridUnrealizedSum = 0;
         this.activePairs.forEach(pair => {
             if (this.gridActiveMap[pair]) {
@@ -4754,19 +4754,19 @@ class BotEngine {
         return {
             currentPair: this.currentPair,
             currentTimeframe: this.currentTimeframe,
-            
+
             // Expose the multi-pair structures
             activePairs: this.activePairs,
             livePrices: this.livePrices,
             priceChanges24h: this.priceChanges24h,
             volumes24h: this.volumes24h,
             historicalCandlesMap: this.historicalCandlesMap,
-            
+
             // compatibility fields
             livePrice: this.livePrice,
             priceChange24h: this.priceChange24h,
             volume24h: this.volume24h,
-            
+
             aiBrainTrained: this.aiBrainTrained,
             modelType: this.modelType,
             botRunning: this.botRunning,
@@ -4783,7 +4783,7 @@ class BotEngine {
             atrSpikeThreshold: this.atrSpikeThreshold,
             volSpikeThreshold: this.volSpikeThreshold,
             initialCapital: this.initialCapital,
-            
+
             liveTradingMode: this.liveTradingMode,
             binanceApiKey: this.binanceApiKey ? this.binanceApiKey.slice(0, 6) + '...' + this.binanceApiKey.slice(-4) : '',
             binanceApiSecret: this.binanceApiSecret ? '********************' : '',
@@ -4853,7 +4853,7 @@ class BotEngine {
 
             // Phase 5: persistence status for ops visibility.
             persistence: getPersistenceInfo(),
-            
+
             openPositions: this.openPositions,
             tradeHistory: this.tradeHistory,
             orderHistory: this.orderHistory,

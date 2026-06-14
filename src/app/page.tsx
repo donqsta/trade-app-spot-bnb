@@ -258,7 +258,7 @@ export default function Home() {
                 console.error('Error loading trading pair data:', e);
             }
         };
-        
+
         loadPair();
     }, [pair, timeframe]);
 
@@ -271,10 +271,10 @@ export default function Home() {
         setMarginFree(data.marginFree);
         setTotalUnrealizedPnl(data.totalUnrealizedPnl);
         setOpenPositions(data.openPositions);
-        
+
         // Sync historical candles fetched from server
         if (data.logs) setLogs(data.logs);
-        
+
         // Render server trades into trade history only if NOT in backtestMode
         if (!backtestMode) {
             setTradeHistory(data.tradeHistory);
@@ -282,7 +282,7 @@ export default function Home() {
 
         setAiBrainTrained(data.aiBrainTrained);
         setAiBrainStatus(data.aiBrainTrained ? 'READY' : 'UNTRAINED');
-        
+
         // Update Live Price changes
         setPrevPrice(prev => {
             if (data.livePrice !== prev) {
@@ -312,7 +312,7 @@ export default function Home() {
         if (data.gridActiveMap) setGridActiveMap(data.gridActiveMap);
         if (data.orderHistory) setOrderHistory(data.orderHistory);
         setBotRunning(data.botRunning);
-        
+
         if (data.liveTradingMode) setLiveTradingMode(data.liveTradingMode);
         if (data.binanceApiKey !== undefined) setBinanceApiKey(data.binanceApiKey);
         if (data.binanceApiSecret !== undefined) setBinanceApiSecret(data.binanceApiSecret);
@@ -466,7 +466,7 @@ export default function Home() {
         const newAsks = [];
         let cumAsk = 0;
         for (let i = 5; i >= 1; i--) {
-            const price = livePrice + spreadVal/2 + (i * (livePrice * 0.0001));
+            const price = livePrice + spreadVal / 2 + (i * (livePrice * 0.0001));
             const size = Math.random() * 2.1 + 0.05;
             cumAsk += price * size;
             newAsks.push({ price, size, total: price * size, cumulative: cumAsk });
@@ -476,7 +476,7 @@ export default function Home() {
         const newBids = [];
         let cumBid = 0;
         for (let i = 1; i <= 5; i++) {
-            const price = livePrice - spreadVal/2 - (i * (livePrice * 0.0001));
+            const price = livePrice - spreadVal / 2 - (i * (livePrice * 0.0001));
             const size = Math.random() * 2.1 + 0.05;
             cumBid += price * size;
             newBids.push({ price, size, total: price * size, cumulative: cumBid });
@@ -568,7 +568,7 @@ export default function Home() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ modelType })
             });
-            
+
             if (res.ok) {
                 const data = await res.json();
                 syncServerState(data.state);
@@ -596,7 +596,7 @@ export default function Home() {
 
             if (res.ok) {
                 const data = await res.json();
-                
+
                 // Switch dashboard to show backtest equity curve & backtest trades
                 setBacktestMode(true);
                 setBacktestStats({
@@ -612,13 +612,13 @@ export default function Home() {
                     avgLoss: data.avgLoss || 0,
                     sharpe: data.sharpe || 0
                 });
-                
+
                 setEquityCurveBot(data.equityCurve);
                 setEquityCurveBH(data.equityCurveBH);
-                
+
                 // Show backtest trades in the history tab
                 setTradeHistory(data.trades);
-                
+
                 // Focus on metrics tab
                 setActiveTab('metrics');
             }
@@ -639,17 +639,17 @@ export default function Home() {
             });
             if (res.ok) {
                 const data = await res.json();
-                
+
                 // Sync status with UI states
                 syncServerState(data.state);
-                
+
                 if (data.params) {
                     setConfidence(data.params.confidenceThreshold);
                     setLeverage(data.params.leverage);
                     setRisk(data.params.riskRatio * 100);
                     setTpAtr(data.params.tpAtrMultiplier);
                     setSlAtr(data.params.slAtrMultiplier);
-                    
+
                     // Automatically run backtest with newly optimized parameters
                     const backtestRes = await fetch('/api/bot/backtest', {
                         method: 'POST',
@@ -859,11 +859,10 @@ export default function Home() {
                             <div
                                 key={symbol}
                                 onClick={() => handleSwitchPair(symbol)}
-                                className={`flex flex-col justify-center px-4 py-1.5 rounded-xl border transition-all duration-300 cursor-pointer select-none min-w-[130px] hover:scale-[1.03] active:scale-[0.98] ${
-                                    active
+                                className={`flex flex-col justify-center px-4 py-1.5 rounded-xl border transition-all duration-300 cursor-pointer select-none min-w-[130px] hover:scale-[1.03] active:scale-[0.98] ${active
                                         ? 'border-[#226af0] bg-[#226af0]/15 shadow-[0_0_15px_rgba(34,106,240,0.2)]'
                                         : 'border-white/5 bg-[#141822]/60 hover:border-white/15'
-                                }`}
+                                    }`}
                             >
                                 <div className="flex items-center justify-between gap-1">
                                     <span className="text-[10px] font-black tracking-wider text-slate-400">
@@ -876,9 +875,8 @@ export default function Home() {
                                     )}
                                 </div>
                                 <div className="flex items-baseline justify-between gap-2 mt-0.5">
-                                    <span className={`text-[12px] font-extrabold font-mono transition-colors duration-200 ${
-                                        price > 0 ? (active && price > prevPrice ? 'text-[#00c076]' : 'text-slate-100') : 'text-slate-500'
-                                    }`}>
+                                    <span className={`text-[12px] font-extrabold font-mono transition-colors duration-200 ${price > 0 ? (active && price > prevPrice ? 'text-[#00c076]' : 'text-slate-100') : 'text-slate-500'
+                                        }`}>
                                         {price > 0 ? price.toLocaleString(undefined, { minimumFractionDigits: priceFractionDigits, maximumFractionDigits: priceFractionDigits }) : '--.--'}
                                     </span>
                                     <span className={`text-[10px] font-bold font-mono ${change >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]'}`}>
@@ -892,19 +890,18 @@ export default function Home() {
                     {/* Timeframe dropdown */}
                     <div className="flex flex-col ml-2">
                         <span className="text-[8px] text-slate-500 font-extrabold uppercase tracking-wider mb-0.5">Timeframe</span>
-                        <select 
-                            value={timeframe} 
+                        <select
+                            value={timeframe}
                             onChange={(e) => {
                                 const newTimeframe = e.target.value;
                                 setTimeframe(newTimeframe);
                                 localStorage.setItem('selected_timeframe', newTimeframe);
                             }}
                             disabled={quantOperatorEnabled}
-                            className={`border text-[11px] font-bold px-2 py-1 rounded-lg outline-none cursor-pointer transition-all duration-200 ${
-                                quantOperatorEnabled 
-                                    ? 'bg-[#141822]/40 border-[#706fd3]/25 text-[#a29bfe] cursor-not-allowed opacity-75' 
+                            className={`border text-[11px] font-bold px-2 py-1 rounded-lg outline-none cursor-pointer transition-all duration-200 ${quantOperatorEnabled
+                                    ? 'bg-[#141822]/40 border-[#706fd3]/25 text-[#a29bfe] cursor-not-allowed opacity-75'
                                     : 'bg-[#141822] border-white/5 text-slate-300 focus:border-[#226af0]'
-                            }`}
+                                }`}
                             title={quantOperatorEnabled ? "Automatically adjusted by the LLM Quant Operator" : ""}
                         >
                             <option value="1m">1 Min</option>
@@ -952,22 +949,21 @@ export default function Home() {
 
             {/* DASHBOARD GRID */}
             <main className="flex-1 grid grid-cols-[1.6fr_0.9fr_1.1fr] gap-3 p-3 min-h-0">
-                
+
                 {/* LEFT COLUMN: Candlestick & Profit charts */}
                 <section className="flex flex-col gap-3 min-h-0">
                     {/* Price Chart Card */}
                     <div className="flex-1 flex flex-col bg-[#11141c]/50 border border-white/5 rounded-xl overflow-hidden shadow-lg min-h-[350px]">
                         <div className="flex items-center justify-between px-4 h-10 border-b border-white/5 select-none">
                             <div className="flex items-center gap-2">
-                                
+
                                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">Technical Chart</h2>
                             </div>
                             <div className="flex items-center gap-2">
-                                <button 
+                                <button
                                     onClick={() => setShowEma(!showEma)}
-                                    className={`px-2 py-0.5 text-[10px] font-bold rounded cursor-pointer transition-all border ${
-                                        showEma ? 'bg-[#226af0]/15 border-[#226af0] text-[#226af0]' : 'bg-white/5 border-white/5 text-slate-400 hover:text-slate-200'
-                                    }`}
+                                    className={`px-2 py-0.5 text-[10px] font-bold rounded cursor-pointer transition-all border ${showEma ? 'bg-[#226af0]/15 border-[#226af0] text-[#226af0]' : 'bg-white/5 border-white/5 text-slate-400 hover:text-slate-200'
+                                        }`}
                                 >
                                     EMA
                                 </button>
@@ -985,14 +981,14 @@ export default function Home() {
                     <div className="h-60 flex flex-col bg-[#11141c]/50 border border-white/5 rounded-xl overflow-hidden shadow-lg">
                         <div className="flex items-center justify-between px-4 h-10 border-b border-white/5 select-none">
                             <div className="flex items-center gap-2">
-                                
+
                                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">
                                     Cumulative Equity Curve {backtestMode && '(Backtest Mode)'}
                                 </h2>
                             </div>
                             <div className="flex items-center gap-2">
                                 {backtestMode ? (
-                                    <button 
+                                    <button
                                         onClick={() => {
                                             setBacktestMode(false);
                                             setActiveTab('positions');
@@ -1020,7 +1016,7 @@ export default function Home() {
                     <div className="flex-[1.3] flex flex-col bg-[#11141c]/50 border border-white/5 rounded-xl overflow-hidden shadow-lg min-h-0 font-mono">
                         <div className="flex items-center justify-between px-4 h-10 border-b border-white/5 select-none">
                             <div className="flex items-center gap-2">
-                                
+
                                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">Order Book</h2>
                             </div>
                             <span className="text-[10px] text-slate-500 font-bold">
@@ -1079,7 +1075,7 @@ export default function Home() {
                     <div className="flex-1 flex flex-col bg-[#11141c]/50 border border-white/5 rounded-xl overflow-hidden shadow-lg min-h-0 font-mono">
                         <div className="flex items-center justify-between px-4 h-10 border-b border-white/5 select-none">
                             <div className="flex items-center gap-2">
-                                
+
                                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">Market Trades</h2>
                             </div>
                             <span className="inline-block w-1.5 h-1.5 bg-[#ff3b30] rounded-full shadow-[0_0_5px_#ff3b30]" />
@@ -1107,12 +1103,12 @@ export default function Home() {
 
                 {/* RIGHT COLUMN: AI settings & Console terminal */}
                 <section className="flex flex-col gap-3 min-h-0">
-                    
+
                     {/* Bot Configuration Panel */}
                     <div className="flex-[1.4] flex flex-col bg-[#11141c]/50 border border-white/5 rounded-xl overflow-hidden shadow-lg min-h-0">
                         <div className="flex items-center justify-between px-4 h-10 border-b border-white/5 select-none">
                             <div className="flex items-center gap-2">
-                                
+
                                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">AI Bot Configuration</h2>
                             </div>
                             {/* ON/OFF Switch */}
@@ -1121,11 +1117,11 @@ export default function Home() {
                                     {botRunning ? 'ACTIVE' : 'OFF'}
                                 </span>
                                 <label className="relative inline-flex items-center cursor-pointer">
-                                    <input 
-                                        type="checkbox" 
+                                    <input
+                                        type="checkbox"
                                         checked={botRunning}
                                         onChange={(e) => handleToggleBot(e.target.checked)}
-                                        className="sr-only peer" 
+                                        className="sr-only peer"
                                     />
                                     <div className="w-7 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#00c076] shadow-sm"></div>
                                 </label>
@@ -1145,15 +1141,14 @@ export default function Home() {
                                             <span className="text-[8px] font-black px-1.5 py-0.2 bg-[#226af0]/10 text-[#226af0] rounded border border-[#226af0]/25 animate-pulse uppercase tracking-wider">
                                                 Background Auto-Train</span>
                                         </div>
-                                        <span className={`text-xs font-bold tracking-wider ${
-                                            aiBrainTrained ? 'text-[#00c076]' : 'text-[#ffb300]'
-                                        }`}>
+                                        <span className={`text-xs font-bold tracking-wider ${aiBrainTrained ? 'text-[#00c076]' : 'text-[#ffb300]'
+                                            }`}>
                                             {isTraining ? 'TRAINING...' : aiBrainStatus.toUpperCase()}
                                         </span>
                                     </div>
                                 </div>
 
-                                <button 
+                                <button
                                     onClick={trainAIBrain}
                                     disabled={isTraining}
                                     className="w-full flex items-center justify-center gap-1.5 bg-[#226af0] text-white font-bold py-2 rounded-lg shadow-[0_0_10px_rgba(34,106,240,0.15)] hover:shadow-[0_0_15px_rgba(34,106,240,0.35)] transition-all cursor-pointer text-xs disabled:opacity-50"
@@ -1182,11 +1177,10 @@ export default function Home() {
                                                     setLiveTradingMode(m.id);
                                                     handleUpdateLiveTradingConfig(m.id, '', '');
                                                 }}
-                                                className={`text-[10px] font-bold py-1 border rounded-md transition-all duration-200 cursor-pointer ${
-                                                    liveTradingMode === m.id
+                                                className={`text-[10px] font-bold py-1 border rounded-md transition-all duration-200 cursor-pointer ${liveTradingMode === m.id
                                                         ? m.activeColor
                                                         : 'border-white/5 bg-slate-900/40 text-slate-400 hover:text-slate-200 hover:border-white/10'
-                                                }`}
+                                                    }`}
                                             >
                                                 {m.label}
                                             </button>
@@ -1307,15 +1301,14 @@ export default function Home() {
                                     <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
                                         AI Algorithm <span title="KNN: K-Nearest Neighbors grouping | Logistic: Regression learning weights"><i className="fa-solid fa-circle-info text-[10px] text-slate-500 cursor-help" /></span>
                                     </label>
-                                    <select 
+                                    <select
                                         value={modelType}
                                         onChange={(e) => handleModelTypeChange(e.target.value)}
                                         disabled={quantOperatorEnabled}
-                                        className={`border text-slate-200 text-xs font-bold px-2 py-1.5 rounded-lg outline-none cursor-pointer transition-all ${
-                                            quantOperatorEnabled 
-                                                ? 'bg-white/1 border-[#706fd3]/25 text-[#a29bfe] cursor-not-allowed opacity-75' 
+                                        className={`border text-slate-200 text-xs font-bold px-2 py-1.5 rounded-lg outline-none cursor-pointer transition-all ${quantOperatorEnabled
+                                                ? 'bg-white/1 border-[#706fd3]/25 text-[#a29bfe] cursor-not-allowed opacity-75'
                                                 : 'bg-white/5 border-white/5 focus:border-[#226af0]'
-                                        }`}
+                                            }`}
                                         title={quantOperatorEnabled ? "Automatically adjusted by the LLM Quant Operator Brain" : ""}
                                     >
                                         <option value="knn">K-Nearest Neighbors (KNN)</option>
@@ -1332,17 +1325,17 @@ export default function Home() {
                                         <span className="text-slate-400">Min Confidence</span>
                                         <span className="text-[#226af0] font-mono">{confidence}%</span>
                                     </div>
-                                    <input 
-                                        type="range" 
-                                        min="55" 
-                                        max="90" 
+                                    <input
+                                        type="range"
+                                        min="55"
+                                        max="90"
                                         value={confidence}
                                         onChange={(e) => {
                                             const val = parseInt(e.target.value);
                                             setConfidence(val);
                                             handleParamChange('confidenceThreshold', val);
                                         }}
-                                        className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#226af0]" 
+                                        className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#226af0]"
                                     />
                                 </div>
 
@@ -1352,18 +1345,18 @@ export default function Home() {
                                         <span className="text-slate-400">Risk Ratio</span>
                                         <span className="text-[#226af0] font-mono">{risk}%</span>
                                     </div>
-                                    <input 
-                                        type="range" 
-                                        min="1" 
-                                        max="10" 
-                                        step="0.5" 
+                                    <input
+                                        type="range"
+                                        min="1"
+                                        max="10"
+                                        step="0.5"
                                         value={risk}
                                         onChange={(e) => {
                                             const val = parseFloat(e.target.value);
                                             setRisk(val);
                                             handleParamChange('riskRatio', val);
                                         }}
-                                        className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#226af0]" 
+                                        className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#226af0]"
                                     />
                                 </div>
 
@@ -1373,18 +1366,18 @@ export default function Home() {
                                         <span className="text-slate-400">Order Size Multiplier</span>
                                         <span className="text-[#226af0] font-mono">{orderSizeMultiplier.toFixed(1)}x</span>
                                     </div>
-                                    <input 
-                                        type="range" 
-                                        min="0.5" 
-                                        max="5.0" 
-                                        step="0.1" 
+                                    <input
+                                        type="range"
+                                        min="0.5"
+                                        max="5.0"
+                                        step="0.1"
                                         value={orderSizeMultiplier}
                                         onChange={(e) => {
                                             const val = parseFloat(e.target.value);
                                             setOrderSizeMultiplier(val);
                                             handleParamChange('orderSizeMultiplier', val);
                                         }}
-                                        className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#226af0]" 
+                                        className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#226af0]"
                                     />
                                 </div>
 
@@ -1394,34 +1387,34 @@ export default function Home() {
                                 <div className="grid grid-cols-2 gap-3.5">
                                     <div className="flex flex-col gap-1">
                                         <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Take Profit ATR</label>
-                                        <input 
-                                            type="number" 
-                                            min="1.0" 
-                                            max="5.0" 
-                                            step="0.1" 
+                                        <input
+                                            type="number"
+                                            min="1.0"
+                                            max="5.0"
+                                            step="0.1"
                                             value={tpAtr}
                                             onChange={(e) => {
                                                 const val = parseFloat(e.target.value);
                                                 setTpAtr(val);
                                                 handleParamChange('tpAtrMultiplier', val);
                                             }}
-                                            className="bg-white/3 border border-white/5 rounded-lg py-1 px-2.5 outline-none font-mono text-slate-200 focus:border-[#226af0]" 
+                                            className="bg-white/3 border border-white/5 rounded-lg py-1 px-2.5 outline-none font-mono text-slate-200 focus:border-[#226af0]"
                                         />
                                     </div>
                                     <div className="flex flex-col gap-1">
                                         <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Stop Loss ATR</label>
-                                        <input 
-                                            type="number" 
-                                            min="0.5" 
-                                            max="3.0" 
-                                            step="0.1" 
+                                        <input
+                                            type="number"
+                                            min="0.5"
+                                            max="3.0"
+                                            step="0.1"
                                             value={slAtr}
                                             onChange={(e) => {
                                                 const val = parseFloat(e.target.value);
                                                 setSlAtr(val);
                                                 handleParamChange('slAtrMultiplier', val);
                                             }}
-                                            className="bg-white/3 border border-white/5 rounded-lg py-1 px-2.5 outline-none font-mono text-slate-200 focus:border-[#226af0]" 
+                                            className="bg-white/3 border border-white/5 rounded-lg py-1 px-2.5 outline-none font-mono text-slate-200 focus:border-[#226af0]"
                                         />
                                     </div>
                                 </div>
@@ -1430,8 +1423,8 @@ export default function Home() {
                                 <div className="grid grid-cols-2 gap-3.5 border-t border-white/5 pt-3.5 mt-1">
                                     <div className="flex flex-col gap-1">
                                         <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Simulated Starting Capital ($)</label>
-                                        <input 
-                                            type="number" 
+                                        <input
+                                            type="number"
                                             min="100"
                                             max="1000000"
                                             step="100"
@@ -1440,7 +1433,7 @@ export default function Home() {
                                                 const val = parseFloat(e.target.value);
                                                 handleSetCapital(val);
                                             }}
-                                            className="bg-white/3 border border-white/5 rounded-lg py-1 px-2.5 outline-none font-mono text-slate-200 focus:border-[#226af0]" 
+                                            className="bg-white/3 border border-white/5 rounded-lg py-1 px-2.5 outline-none font-mono text-slate-200 focus:border-[#226af0]"
                                         />
                                     </div>
                                     <div className="flex flex-col gap-1">
@@ -1452,11 +1445,11 @@ export default function Home() {
                                                 {smartOrderAdjustment ? 'ACTIVE' : 'OFF'}
                                             </span>
                                             <label className="relative inline-flex items-center cursor-pointer ml-auto">
-                                                <input 
-                                                    type="checkbox" 
+                                                <input
+                                                    type="checkbox"
                                                     checked={smartOrderAdjustment}
                                                     onChange={(e) => handleToggleSmartQuant(e.target.checked)}
-                                                    className="sr-only peer" 
+                                                    className="sr-only peer"
                                                 />
                                                 <div className="w-7 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#00c076] shadow-sm"></div>
                                             </label>
@@ -1474,11 +1467,11 @@ export default function Home() {
                                                 {gridModeEnabled ? 'ACTIVE' : 'OFF'}
                                             </span>
                                             <label className="relative inline-flex items-center cursor-pointer ml-auto">
-                                                <input 
-                                                    type="checkbox" 
+                                                <input
+                                                    type="checkbox"
                                                     checked={gridModeEnabled}
                                                     onChange={(e) => handleToggleGrid(e.target.checked)}
-                                                    className="sr-only peer" 
+                                                    className="sr-only peer"
                                                 />
                                                 <div className="w-7 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#00c076] shadow-sm"></div>
                                             </label>
@@ -1603,11 +1596,11 @@ export default function Home() {
                                                 {quantOperatorEnabled ? 'ACTIVE' : 'OFF'}
                                             </span>
                                             <label className="relative inline-flex items-center cursor-pointer ml-auto">
-                                                <input 
-                                                    type="checkbox" 
+                                                <input
+                                                    type="checkbox"
                                                     checked={quantOperatorEnabled}
                                                     onChange={(e) => handleToggleQuantOperator(e.target.checked)}
-                                                    className="sr-only peer" 
+                                                    className="sr-only peer"
                                                 />
                                                 <div className="w-7 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#706fd3] shadow-sm"></div>
                                             </label>
@@ -1622,10 +1615,10 @@ export default function Home() {
                     <div className="flex-1 flex flex-col bg-[#040507] border border-white/5 rounded-xl overflow-hidden shadow-lg min-h-[160px]">
                         <div className="flex items-center justify-between px-4 h-10 border-b border-white/5 bg-[#11141c]/50 select-none">
                             <div className="flex items-center gap-2">
-                                
+
                                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">Server Console Logs</h2>
                             </div>
-                            <button 
+                            <button
                                 onClick={clearSystemLogs}
                                 className="text-slate-500 hover:text-slate-200 transition-colors cursor-pointer"
                                 title="Clear logs"
@@ -1637,7 +1630,7 @@ export default function Home() {
                             {logs.map((log, idx) => {
                                 let borderClass = 'border-l-2 border-transparent pl-1.5 ';
                                 let textClass = 'text-slate-300';
-                                
+
                                 if (log.styleClass === 'system-line') {
                                     borderClass += 'border-slate-500';
                                     textClass = 'text-slate-400';
@@ -1672,51 +1665,45 @@ export default function Home() {
                 {/* Tabs bar */}
                 <div className="flex items-center justify-between px-6 h-[38px] border-b border-white/5 bg-slate-950/20 select-none">
                     <div className="flex gap-2 h-full items-end">
-                        <button 
+                        <button
                             onClick={() => setActiveTab('positions')}
-                            className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center ${
-                                activeTab === 'positions' ? 'text-[#226af0] border-[#226af0]' : 'text-slate-400 border-transparent hover:text-slate-200'
-                            }`}
+                            className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center ${activeTab === 'positions' ? 'text-[#226af0] border-[#226af0]' : 'text-slate-400 border-transparent hover:text-slate-200'
+                                }`}
                         >
                             Open Positions ({openPositions.length})
                         </button>
-                        <button 
+                        <button
                             onClick={() => setActiveTab('grid')}
-                            className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center ${
-                                activeTab === 'grid' ? 'text-[#226af0] border-[#226af0]' : 'text-slate-400 border-transparent hover:text-slate-200'
-                            }`}
+                            className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center ${activeTab === 'grid' ? 'text-[#226af0] border-[#226af0]' : 'text-slate-400 border-transparent hover:text-slate-200'
+                                }`}
                         >
                             AI Smart Grid ({gridOrders.length})
                         </button>
-                        <button 
+                        <button
                             onClick={() => setActiveTab('orders')}
-                            className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center ${
-                                activeTab === 'orders' ? 'text-[#226af0] border-[#226af0]' : 'text-slate-400 border-transparent hover:text-slate-200'
-                            }`}
+                            className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center ${activeTab === 'orders' ? 'text-[#226af0] border-[#226af0]' : 'text-slate-400 border-transparent hover:text-slate-200'
+                                }`}
                         >
                             Order History ({orderHistory.length})
                         </button>
-                        <button 
+                        <button
                             onClick={() => setActiveTab('history')}
-                            className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center ${
-                                activeTab === 'history' ? 'text-[#226af0] border-[#226af0]' : 'text-slate-400 border-transparent hover:text-slate-200'
-                            }`}
+                            className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center ${activeTab === 'history' ? 'text-[#226af0] border-[#226af0]' : 'text-slate-400 border-transparent hover:text-slate-200'
+                                }`}
                         >
                             {backtestMode ? 'Backtest Trade History' : 'Trade History'}
                         </button>
-                        <button 
+                        <button
                             onClick={() => setActiveTab('metrics')}
-                            className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center ${
-                                activeTab === 'metrics' ? 'text-[#226af0] border-[#226af0]' : 'text-slate-400 border-transparent hover:text-slate-200'
-                            }`}
+                            className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center ${activeTab === 'metrics' ? 'text-[#226af0] border-[#226af0]' : 'text-slate-400 border-transparent hover:text-slate-200'
+                                }`}
                         >
                             Performance Metrics
                         </button>
-                        <button 
+                        <button
                             onClick={() => setActiveTab('operator')}
-                            className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
-                                activeTab === 'operator' ? 'text-[#a29bfe] border-[#706fd3]' : 'text-slate-400 border-transparent hover:text-[#a29bfe]/80'
-                            }`}
+                            className={`h-full px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${activeTab === 'operator' ? 'text-[#a29bfe] border-[#706fd3]' : 'text-slate-400 border-transparent hover:text-[#a29bfe]/80'
+                                }`}
                         >
                             Quant Operator Brain (LLM)
                         </button>
@@ -1734,7 +1721,7 @@ export default function Home() {
                         <div className="flex items-center gap-1.5">
                             <span className="text-slate-500">Unrealized PnL:</span>
                             <span className={`font-extrabold ${totalUnrealizedPnl >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]'}`}>
-                                ${totalUnrealizedPnl >= 0 ? '+' : ''}{totalUnrealizedPnl.toFixed(2)} ({marginUsed > 0 ? `${totalUnrealizedPnl >= 0 ? '+' : ''}${((totalUnrealizedPnl/marginUsed)*100).toFixed(2)}%` : '0.00%'})
+                                ${totalUnrealizedPnl >= 0 ? '+' : ''}{totalUnrealizedPnl.toFixed(2)} ({marginUsed > 0 ? `${totalUnrealizedPnl >= 0 ? '+' : ''}${((totalUnrealizedPnl / marginUsed) * 100).toFixed(2)}%` : '0.00%'})
                             </span>
                         </div>
                     </div>
@@ -1742,7 +1729,7 @@ export default function Home() {
 
                 {/* Tab content body */}
                 <div className="flex-1 overflow-y-auto p-0 min-h-0 bg-[#0c0d12]/30">
-                    
+
                     {/* Orders tab */}
                     {activeTab === 'orders' && (
                         <div className="h-full overflow-auto">
@@ -1781,20 +1768,18 @@ export default function Home() {
                                                     <td className="py-2.5 px-4">${o.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                     <td className="py-2.5 px-4">{o.size.toFixed(4)}</td>
                                                     <td className="py-2.5 px-4">
-                                                        <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-wide uppercase ${
-                                                            o.status === 'PENDING' ? 'bg-slate-800 text-slate-400 border border-slate-700/50' : 
-                                                            o.status === 'FILLED' ? 'bg-[#ff9500]/15 text-[#ff9500] border border-[#ff9500]/30 animate-pulse' : 
-                                                            o.status === 'CANCELLED' ? 'bg-slate-900 text-slate-500 border border-slate-800' :
-                                                            'bg-[#00c076]/15 text-[#00c076] border border-[#00c076]/30'
-                                                        }`}>
+                                                        <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-wide uppercase ${o.status === 'PENDING' ? 'bg-slate-800 text-slate-400 border border-slate-700/50' :
+                                                                o.status === 'FILLED' ? 'bg-[#ff9500]/15 text-[#ff9500] border border-[#ff9500]/30 animate-pulse' :
+                                                                    o.status === 'CANCELLED' ? 'bg-slate-900 text-slate-500 border border-slate-800' :
+                                                                        'bg-[#00c076]/15 text-[#00c076] border border-[#00c076]/30'
+                                                            }`}>
                                                             {o.status}
                                                         </span>
                                                     </td>
-                                                    <td className={`py-2.5 px-4 text-right font-bold ${
-                                                        typeof o.pnl === 'number' ? (o.pnl >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]') : 'text-slate-500'
-                                                    }`}>
-                                                        {typeof o.pnl === 'number' 
-                                                            ? (o.pnl === 0 ? '$0.00' : `${o.pnl > 0 ? '+' : '-'}$${Math.abs(o.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) 
+                                                    <td className={`py-2.5 px-4 text-right font-bold ${typeof o.pnl === 'number' ? (o.pnl >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]') : 'text-slate-500'
+                                                        }`}>
+                                                        {typeof o.pnl === 'number'
+                                                            ? (o.pnl === 0 ? '$0.00' : `${o.pnl > 0 ? '+' : '-'}$${Math.abs(o.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
                                                             : '--'}
                                                     </td>
                                                     <td className="py-2.5 px-5 text-right text-slate-400 font-sans text-[10px]">
@@ -1822,9 +1807,8 @@ export default function Home() {
                                 </div>
                                 <div className="bg-white/2 border border-white/5 rounded-xl p-3 flex flex-col gap-1 font-mono">
                                     <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Grid Profit</span>
-                                    <span className={`text-[13px] font-extrabold ${
-                                        gridOrders.reduce((a, o) => a + (o.status === 'FILLED' ? o.pnl : 0), 0) >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]'
-                                    }`}>
+                                    <span className={`text-[13px] font-extrabold ${gridOrders.reduce((a, o) => a + (o.status === 'FILLED' ? o.pnl : 0), 0) >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]'
+                                        }`}>
                                         {(() => {
                                             const total = gridOrders.reduce((a, o) => a + (o.status === 'FILLED' ? o.pnl : 0), 0);
                                             return total === 0 ? '$0.00' : `${total > 0 ? '+$' : '-$'}${Math.abs(total).toFixed(2)}`;
@@ -1864,8 +1848,8 @@ export default function Home() {
                                         {gridOrders.length === 0 ? (
                                             <tr className="text-center font-sans text-slate-500">
                                                 <td colSpan={8} className="py-12">
-                                                    {gridModeEnabled 
-                                                        ? "AI Grid is not active. Scanning for sideways market signals..." 
+                                                    {gridModeEnabled
+                                                        ? "AI Grid is not active. Scanning for sideways market signals..."
                                                         : "Please enable AI Smart Grid Mode in Settings to initialize grids."}
                                                 </td>
                                             </tr>
@@ -1883,20 +1867,18 @@ export default function Home() {
                                                     <td className="py-2.5 px-4 text-slate-300">${order.margin.toFixed(2)}</td>
                                                     <td className="py-2.5 px-4 text-[#00c076] font-bold">${order.tpPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                     <td className="py-2.5 px-4">
-                                                        <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-wide uppercase ${
-                                                            order.status === 'PENDING' ? 'bg-slate-800 text-slate-400 border border-slate-700/50' : 
-                                                            order.status === 'FILLED' ? 'bg-[#ff9500]/15 text-[#ff9500] border border-[#ff9500]/30 animate-pulse' : 
-                                                            'bg-[#00c076]/15 text-[#00c076] border border-[#00c076]/30'
-                                                        }`}>
-                                                            {order.status === 'PENDING' ? 'PENDING' : 
-                                                             order.status === 'FILLED' ? 'FILLED' : 
-                                                             'CLOSED'}
+                                                        <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-wide uppercase ${order.status === 'PENDING' ? 'bg-slate-800 text-slate-400 border border-slate-700/50' :
+                                                                order.status === 'FILLED' ? 'bg-[#ff9500]/15 text-[#ff9500] border border-[#ff9500]/30 animate-pulse' :
+                                                                    'bg-[#00c076]/15 text-[#00c076] border border-[#00c076]/30'
+                                                            }`}>
+                                                            {order.status === 'PENDING' ? 'PENDING' :
+                                                                order.status === 'FILLED' ? 'FILLED' :
+                                                                    'CLOSED'}
                                                         </span>
                                                     </td>
-                                                    <td className={`py-2.5 px-5 text-right font-bold ${
-                                                        order.status === 'FILLED' ? (order.pnl >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]') : 
-                                                        order.status === 'CLOSED' ? 'text-[#00c076]' : 'text-slate-500'
-                                                    }`}>
+                                                    <td className={`py-2.5 px-5 text-right font-bold ${order.status === 'FILLED' ? (order.pnl >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]') :
+                                                            order.status === 'CLOSED' ? 'text-[#00c076]' : 'text-slate-500'
+                                                        }`}>
                                                         {order.status === 'PENDING' ? '$0.00' : (
                                                             order.pnl === 0 ? '$0.00' : `${order.pnl > 0 ? '+' : '-'}$${Math.abs(order.pnl).toFixed(2)}`
                                                         )}
@@ -1909,7 +1891,7 @@ export default function Home() {
                             </div>
                         </div>
                     )}
-                    
+
                     {/* Positions tab */}
                     {activeTab === 'positions' && (
                         <div className="h-full overflow-auto">
@@ -1995,7 +1977,7 @@ export default function Home() {
                                                             </div>
                                                             {pos.trailingTpActive && pos.trailingTpPrice != null && (
                                                                 <span className="text-[8px] text-cyan-400 font-bold">
-                                                                     Trailing TP ${pos.trailingTpPrice.toLocaleString(undefined, { minimumFractionDigits: getDigits(pos.symbol), maximumFractionDigits: getDigits(pos.symbol) })}
+                                                                    Trailing TP ${pos.trailingTpPrice.toLocaleString(undefined, { minimumFractionDigits: getDigits(pos.symbol), maximumFractionDigits: getDigits(pos.symbol) })}
                                                                     {pos.peakPrice != null && ` · peak $${pos.peakPrice.toLocaleString(undefined, { minimumFractionDigits: getDigits(pos.symbol), maximumFractionDigits: getDigits(pos.symbol) })}`}
                                                                 </span>
                                                             )}
@@ -2008,7 +1990,7 @@ export default function Home() {
                                                         {pos.pnl === 0 ? '$0.00' : `${pos.pnl > 0 ? '+$' : '-$'}${Math.abs(pos.pnl).toFixed(2)}`} ({pos.pnl === 0 ? '0.00%' : `${pos.pnlPercent >= 0 ? '+' : ''}${pos.pnlPercent.toFixed(2)}%`})
                                                     </td>
                                                     <td className="py-2.5 px-5 text-right">
-                                                        <button 
+                                                        <button
                                                             onClick={() => closePositionManual(idx)}
                                                             className="bg-[#ff3b30]/10 text-[#ff3b30] border border-[#ff3b30]/30 hover:bg-[#ff3b30] hover:text-white px-3 py-1 rounded font-bold cursor-pointer transition-all text-[10px]"
                                                         >
@@ -2061,11 +2043,10 @@ export default function Home() {
                                                         {t.pnl === 0 ? '$0.00' : `${isProfit ? '+' : '-'}$${Math.abs(t.pnl).toFixed(2)}`}
                                                     </td>
                                                     <td className="py-2.5 px-5 text-right">
-                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                                            (t.status.includes('Profit') || t.status.includes('TP')) ? 'bg-[#00c076]/10 text-[#00c076] border border-[#00c076]/20' : 
-                                                            t.status.includes('Momentum') ? 'bg-[#ffb300]/10 text-[#ffb300] border border-[#ffb300]/20' :
-                                                            (t.status.includes('Loss') ? 'bg-[#ff3b30]/10 text-[#ff3b30] border border-[#ff3b30]/20' : 'bg-white/5 border border-white/5 text-slate-400')
-                                                        }`}>
+                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${(t.status.includes('Profit') || t.status.includes('TP')) ? 'bg-[#00c076]/10 text-[#00c076] border border-[#00c076]/20' :
+                                                                t.status.includes('Momentum') ? 'bg-[#ffb300]/10 text-[#ffb300] border border-[#ffb300]/20' :
+                                                                    (t.status.includes('Loss') ? 'bg-[#ff3b30]/10 text-[#ff3b30] border border-[#ff3b30]/20' : 'bg-white/5 border border-white/5 text-slate-400')
+                                                            }`}>
                                                             {t.status}
                                                         </span>
                                                     </td>
@@ -2083,9 +2064,8 @@ export default function Home() {
                         <div className="grid grid-cols-4 gap-4 p-4 h-full">
                             <div className="flex flex-col justify-center bg-white/2 border border-white/5 rounded-lg p-3">
                                 <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">AI Bot Performance (PnL %)</span>
-                                <span className={`text-xl font-extrabold font-mono mt-0.5 ${
-                                    (backtestMode ? backtestStats.botPnL : ((balance - simulatedCapital) / simulatedCapital) * 100) >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]'
-                                }`}>
+                                <span className={`text-xl font-extrabold font-mono mt-0.5 ${(backtestMode ? backtestStats.botPnL : ((balance - simulatedCapital) / simulatedCapital) * 100) >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]'
+                                    }`}>
                                     {backtestMode ? (backtestStats.botPnL >= 0 ? '+' : '') : (((balance - simulatedCapital) / simulatedCapital) * 100 >= 0 ? '+' : '')}
                                     {backtestMode ? backtestStats.botPnL.toFixed(2) : (((balance - simulatedCapital) / simulatedCapital) * 100).toFixed(2)}%
                                 </span>
@@ -2097,9 +2077,8 @@ export default function Home() {
 
                             <div className="flex flex-col justify-center bg-white/2 border border-white/5 rounded-lg p-3">
                                 <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Benchmark Buy & Hold</span>
-                                <span className={`text-xl font-extrabold font-mono mt-0.5 ${
-                                    (backtestMode ? backtestStats.bhPnL : 0) >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]'
-                                }`}>
+                                <span className={`text-xl font-extrabold font-mono mt-0.5 ${(backtestMode ? backtestStats.bhPnL : 0) >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]'
+                                    }`}>
                                     {backtestMode ? (backtestStats.bhPnL >= 0 ? '+' : '') : ''}
                                     {backtestMode ? backtestStats.bhPnL.toFixed(2) : '0.00'}%
                                 </span>
@@ -2126,10 +2105,9 @@ export default function Home() {
 
                             <div className="flex flex-col justify-center bg-white/2 border border-white/5 rounded-lg p-3">
                                 <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Profit Factor</span>
-                                <span className={`text-xl font-extrabold font-mono mt-0.5 ${
-                                    backtestMode && backtestStats.profitFactor >= 1.5 ? 'text-[#00c076]' :
-                                    backtestMode && backtestStats.profitFactor >= 1.0 ? 'text-slate-200' : 'text-[#ff3b30]'
-                                }`}>
+                                <span className={`text-xl font-extrabold font-mono mt-0.5 ${backtestMode && backtestStats.profitFactor >= 1.5 ? 'text-[#00c076]' :
+                                        backtestMode && backtestStats.profitFactor >= 1.0 ? 'text-slate-200' : 'text-[#ff3b30]'
+                                    }`}>
                                     {backtestMode ? (backtestStats.profitFactor > 99 ? '∞' : backtestStats.profitFactor.toFixed(2)) : '–'}
                                 </span>
                                 <span className="text-[10px] text-slate-500 mt-0.5 uppercase tracking-wider">Profit / Loss</span>
@@ -2137,10 +2115,9 @@ export default function Home() {
 
                             <div className="flex flex-col justify-center bg-white/2 border border-white/5 rounded-lg p-3">
                                 <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Expectancy / Trade</span>
-                                <span className={`text-xl font-extrabold font-mono mt-0.5 ${
-                                    backtestMode && backtestStats.expectancy > 0 ? 'text-[#00c076]' :
-                                    backtestMode && backtestStats.expectancy < 0 ? 'text-[#ff3b30]' : 'text-slate-200'
-                                }`}>
+                                <span className={`text-xl font-extrabold font-mono mt-0.5 ${backtestMode && backtestStats.expectancy > 0 ? 'text-[#00c076]' :
+                                        backtestMode && backtestStats.expectancy < 0 ? 'text-[#ff3b30]' : 'text-slate-200'
+                                    }`}>
                                     {backtestMode ? `${backtestStats.expectancy >= 0 ? '+$' : '-$'}${Math.abs(backtestStats.expectancy).toFixed(2)}` : '–'}
                                 </span>
                                 <span className="text-[10px] text-slate-500 mt-0.5 uppercase tracking-wider">
@@ -2150,10 +2127,9 @@ export default function Home() {
 
                             <div className="flex flex-col justify-center bg-white/2 border border-white/5 rounded-lg p-3">
                                 <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Sharpe Ratio</span>
-                                <span className={`text-xl font-extrabold font-mono mt-0.5 ${
-                                    backtestMode && backtestStats.sharpe >= 1 ? 'text-[#00c076]' :
-                                    backtestMode && backtestStats.sharpe <= 0 ? 'text-[#ff3b30]' : 'text-slate-200'
-                                }`}>
+                                <span className={`text-xl font-extrabold font-mono mt-0.5 ${backtestMode && backtestStats.sharpe >= 1 ? 'text-[#00c076]' :
+                                        backtestMode && backtestStats.sharpe <= 0 ? 'text-[#ff3b30]' : 'text-slate-200'
+                                    }`}>
                                     {backtestMode ? backtestStats.sharpe.toFixed(2) : '–'}
                                 </span>
                                 <span className="text-[10px] text-slate-500 mt-0.5 uppercase tracking-wider">Profit / Volatility</span>
@@ -2167,29 +2143,27 @@ export default function Home() {
                             {/* Radar / Metrics Panel */}
                             <div className="w-[300px] min-w-[300px] border-r border-white/5 p-4 flex flex-col gap-3.5 bg-slate-950/20 font-mono">
                                 <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-white/5 pb-2 flex items-center gap-1.5">
-                                     Market Radar Metrics
+                                    Market Radar Metrics
                                 </div>
-                                
+
                                 <div className="bg-white/2 border border-white/5 rounded-xl p-3 flex flex-col gap-1.5">
                                     <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Choppiness Index</span>
                                     <div className="flex items-center justify-between">
                                         <span className="text-[14px] font-extrabold text-slate-200">{quantOperatorMetrics.choppiness.toFixed(1)}</span>
-                                        <span className={`text-[9px] font-black px-2 py-0.5 rounded ${
-                                            quantOperatorMetrics.choppiness > 62 ? 'bg-[#00c076]/10 text-[#00c076]' : 
-                                            quantOperatorMetrics.choppiness < 52 ? 'bg-[#ff3b30]/10 text-[#ff3b30]' : 
-                                            'bg-slate-800 text-slate-400'
-                                        }`}>
-                                            {quantOperatorMetrics.choppiness > 62 ? 'SIDEWAYS (CHOP)' : 
-                                             quantOperatorMetrics.choppiness < 52 ? 'TRENDING' : 
-                                             'NEUTRAL (NORMAL)'}
+                                        <span className={`text-[9px] font-black px-2 py-0.5 rounded ${quantOperatorMetrics.choppiness > 62 ? 'bg-[#00c076]/10 text-[#00c076]' :
+                                                quantOperatorMetrics.choppiness < 52 ? 'bg-[#ff3b30]/10 text-[#ff3b30]' :
+                                                    'bg-slate-800 text-slate-400'
+                                            }`}>
+                                            {quantOperatorMetrics.choppiness > 62 ? 'SIDEWAYS (CHOP)' :
+                                                quantOperatorMetrics.choppiness < 52 ? 'TRENDING' :
+                                                    'NEUTRAL (NORMAL)'}
                                         </span>
                                     </div>
                                     <div className="w-full bg-slate-850 h-1.5 rounded-full overflow-hidden mt-0.5 border border-white/5">
-                                        <div 
-                                            className={`h-full transition-all duration-500 ${
-                                                quantOperatorMetrics.choppiness > 62 ? 'bg-[#00c076]' : 
-                                                quantOperatorMetrics.choppiness < 52 ? 'bg-[#ff3b30]' : 'bg-slate-500'
-                                            }`} 
+                                        <div
+                                            className={`h-full transition-all duration-500 ${quantOperatorMetrics.choppiness > 62 ? 'bg-[#00c076]' :
+                                                    quantOperatorMetrics.choppiness < 52 ? 'bg-[#ff3b30]' : 'bg-slate-500'
+                                                }`}
                                             style={{ width: `${quantOperatorMetrics.choppiness}%` }}
                                         ></div>
                                     </div>
@@ -2199,22 +2173,20 @@ export default function Home() {
                                     <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">ATR Volatility %</span>
                                     <div className="flex items-center justify-between">
                                         <span className="text-[14px] font-extrabold text-slate-200">{quantOperatorMetrics.volatility.toFixed(2)}%</span>
-                                        <span className={`text-[9px] font-black px-2 py-0.5 rounded ${
-                                            quantOperatorMetrics.volatility >= 1.2 ? 'bg-[#ff3b30]/15 text-[#ff3b30] border border-[#ff3b30]/30 animate-pulse' : 
-                                            quantOperatorMetrics.volatility < 0.25 ? 'bg-slate-800 text-slate-400' : 
-                                            'bg-[#226af0]/10 text-[#226af0]'
-                                        }`}>
-                                            {quantOperatorMetrics.volatility >= 1.2 ? 'EXTREME ' : 
-                                             quantOperatorMetrics.volatility < 0.25 ? 'LOW' : 
-                                             'STABLE'}
+                                        <span className={`text-[9px] font-black px-2 py-0.5 rounded ${quantOperatorMetrics.volatility >= 1.2 ? 'bg-[#ff3b30]/15 text-[#ff3b30] border border-[#ff3b30]/30 animate-pulse' :
+                                                quantOperatorMetrics.volatility < 0.25 ? 'bg-slate-800 text-slate-400' :
+                                                    'bg-[#226af0]/10 text-[#226af0]'
+                                            }`}>
+                                            {quantOperatorMetrics.volatility >= 1.2 ? 'EXTREME ' :
+                                                quantOperatorMetrics.volatility < 0.25 ? 'LOW' :
+                                                    'STABLE'}
                                         </span>
                                     </div>
                                     <div className="w-full bg-slate-850 h-1.5 rounded-full overflow-hidden mt-0.5 border border-white/5">
-                                        <div 
-                                            className={`h-full transition-all duration-500 ${
-                                                quantOperatorMetrics.volatility >= 1.2 ? 'bg-[#ff3b30]' : 
-                                                quantOperatorMetrics.volatility < 0.25 ? 'bg-slate-600' : 'bg-[#226af0]'
-                                            }`} 
+                                        <div
+                                            className={`h-full transition-all duration-500 ${quantOperatorMetrics.volatility >= 1.2 ? 'bg-[#ff3b30]' :
+                                                    quantOperatorMetrics.volatility < 0.25 ? 'bg-slate-600' : 'bg-[#226af0]'
+                                                }`}
                                             style={{ width: `${Math.min(100, (quantOperatorMetrics.volatility / 1.5) * 100)}%` }}
                                         ></div>
                                     </div>
@@ -2224,17 +2196,15 @@ export default function Home() {
                                     <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Trend Intensity</span>
                                     <div className="flex items-center justify-between">
                                         <span className="text-[14px] font-extrabold text-slate-200">{quantOperatorMetrics.trendIntensity}</span>
-                                        <span className={`text-[9px] font-black px-2 py-0.5 rounded ${
-                                            quantOperatorMetrics.trendIntensity >= 35 ? 'bg-[#ff3b30]/10 text-[#ff3b30]' : 'bg-slate-800 text-slate-400'
-                                        }`}>
+                                        <span className={`text-[9px] font-black px-2 py-0.5 rounded ${quantOperatorMetrics.trendIntensity >= 35 ? 'bg-[#ff3b30]/10 text-[#ff3b30]' : 'bg-slate-800 text-slate-400'
+                                            }`}>
                                             {quantOperatorMetrics.trendIntensity >= 35 ? 'STRONG ' : 'WEAK/ACCUMULATION'}
                                         </span>
                                     </div>
                                     <div className="w-full bg-slate-850 h-1.5 rounded-full overflow-hidden mt-0.5 border border-white/5">
-                                        <div 
-                                            className={`h-full transition-all duration-550 ${
-                                                quantOperatorMetrics.trendIntensity >= 35 ? 'bg-[#ff3b30]' : 'bg-slate-600'
-                                            }`} 
+                                        <div
+                                            className={`h-full transition-all duration-550 ${quantOperatorMetrics.trendIntensity >= 35 ? 'bg-[#ff3b30]' : 'bg-slate-600'
+                                                }`}
                                             style={{ width: `${quantOperatorMetrics.trendIntensity}%` }}
                                         ></div>
                                     </div>
@@ -2245,7 +2215,7 @@ export default function Home() {
                             <div className="flex-1 flex flex-col min-w-0 bg-[#05060a]/90">
                                 <div className="h-8 border-b border-white/5 bg-slate-950/40 px-4 flex items-center justify-between select-none">
                                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-                                         QUANT COGNITIVE PROMPT LOGS (OPERATOR COGNITION)
+                                        QUANT COGNITIVE PROMPT LOGS (OPERATOR COGNITION)
                                     </span>
                                     <span className="flex items-center gap-1">
                                         <span className={`w-1.5 h-1.5 rounded-full ${quantOperatorEnabled ? 'bg-[#00c076] animate-pulse' : 'bg-slate-600'}`}></span>
@@ -2261,38 +2231,38 @@ export default function Home() {
                                         </div>
                                     ) : (
                                         [...quantOperatorThoughts].reverse().map((t, idx) => {
-                                             const isDecision = t.type === 'decision';
-                                             const isWarning = t.type === 'warning' || t.message.includes('') || t.message.includes('');
-                                             
-                                             let cardClass = "border-l-2 border-slate-700 bg-slate-900/20 text-slate-300";
-                                             let tagClass = "text-[#a29bfe]";
-                                             let icon = <i className="fa-solid fa-brain text-[11px] text-[#a29bfe] shrink-0 mt-0.5" />;
- 
-                                             if (isDecision) {
-                                                 cardClass = "border-l-2 border-[#226af0] bg-[#226af0]/5 text-[#e0f7fa] font-semibold border border-[#226af0]/15";
-                                                 tagClass = "text-[#226af0]";
-                                                 icon = <i className="fa-solid fa-bolt text-[11px] text-[#226af0] shrink-0 animate-pulse mt-0.5" />;
-                                             } else if (isWarning) {
-                                                 cardClass = "border-l-2 border-[#ffb142] bg-[#ffb142]/5 text-[#ffeaa7] border border-[#ffb142]/15";
-                                                 tagClass = "text-[#ffb142]";
-                                                 icon = <i className="fa-solid fa-triangle-exclamation text-[11px] text-[#ffb142] shrink-0 animate-bounce mt-0.5" />;
-                                             } else if (t.message.includes('')) {
-                                                 cardClass = "border-l-2 border-slate-600 bg-slate-800/10 text-slate-400";
-                                                 tagClass = "text-slate-500";
-                                                 icon = <i className="fa-solid fa-star text-[10px] text-slate-500 shrink-0 mt-0.5" />;
-                                             }
- 
-                                             return (
-                                                 <div key={`thought-${idx}`} className={`pl-3 pr-2 py-1.5 rounded-r flex items-start gap-2.5 ${cardClass}`}>
-                                                     <div className="mt-0.5">{icon}</div>
-                                                     <div className="flex-1">
-                                                         <span className="text-slate-500 font-bold mr-1">[{t.time}]</span>
-                                                         <span className={`font-bold mr-1.5 ${tagClass}`}>[OPERATOR]</span>
-                                                         <span>{t.message}</span>
-                                                     </div>
-                                                 </div>
-                                             );
-                                         })
+                                            const isDecision = t.type === 'decision';
+                                            const isWarning = t.type === 'warning' || t.message.includes('') || t.message.includes('');
+
+                                            let cardClass = "border-l-2 border-slate-700 bg-slate-900/20 text-slate-300";
+                                            let tagClass = "text-[#a29bfe]";
+                                            let icon = <i className="fa-solid fa-brain text-[11px] text-[#a29bfe] shrink-0 mt-0.5" />;
+
+                                            if (isDecision) {
+                                                cardClass = "border-l-2 border-[#226af0] bg-[#226af0]/5 text-[#e0f7fa] font-semibold border border-[#226af0]/15";
+                                                tagClass = "text-[#226af0]";
+                                                icon = <i className="fa-solid fa-bolt text-[11px] text-[#226af0] shrink-0 animate-pulse mt-0.5" />;
+                                            } else if (isWarning) {
+                                                cardClass = "border-l-2 border-[#ffb142] bg-[#ffb142]/5 text-[#ffeaa7] border border-[#ffb142]/15";
+                                                tagClass = "text-[#ffb142]";
+                                                icon = <i className="fa-solid fa-triangle-exclamation text-[11px] text-[#ffb142] shrink-0 animate-bounce mt-0.5" />;
+                                            } else if (t.message.includes('')) {
+                                                cardClass = "border-l-2 border-slate-600 bg-slate-800/10 text-slate-400";
+                                                tagClass = "text-slate-500";
+                                                icon = <i className="fa-solid fa-star text-[10px] text-slate-500 shrink-0 mt-0.5" />;
+                                            }
+
+                                            return (
+                                                <div key={`thought-${idx}`} className={`pl-3 pr-2 py-1.5 rounded-r flex items-start gap-2.5 ${cardClass}`}>
+                                                    <div className="mt-0.5">{icon}</div>
+                                                    <div className="flex-1">
+                                                        <span className="text-slate-500 font-bold mr-1">[{t.time}]</span>
+                                                        <span className={`font-bold mr-1.5 ${tagClass}`}>[OPERATOR]</span>
+                                                        <span>{t.message}</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
                                     )}
                                 </div>
                             </div>
