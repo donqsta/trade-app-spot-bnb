@@ -129,6 +129,11 @@ export default function Home() {
     const [isTraining, setIsTraining] = useState(false);
     const [smartOrderAdjustment, setSmartOrderAdjustment] = useState(true);
     const [simulatedCapital, setSimulatedCapital] = useState(300);
+    const [dcaEnabled, setDcaEnabled] = useState(false);
+    const [dcaMaxSteps, setDcaMaxSteps] = useState(3);
+    const [dcaPriceDropPct, setDcaPriceDropPct] = useState(5.0);
+    const [dcaCapitalAllocation, setDcaCapitalAllocation] = useState<number[]>([0.2, 0.3, 0.5]);
+
 
     // Binance live trading API config
     const [liveTradingMode, setLiveTradingMode] = useState('simulated');
@@ -423,6 +428,18 @@ export default function Home() {
         }
         if (typeof data.slAtrMultiplier === 'number') {
             setSlAtr(data.slAtrMultiplier);
+        }
+        if (typeof data.dcaEnabled === 'boolean') {
+            setDcaEnabled(data.dcaEnabled);
+        }
+        if (typeof data.dcaMaxSteps === 'number') {
+            setDcaMaxSteps(data.dcaMaxSteps);
+        }
+        if (typeof data.dcaPriceDropPct === 'number') {
+            setDcaPriceDropPct(data.dcaPriceDropPct);
+        }
+        if (Array.isArray(data.dcaCapitalAllocation)) {
+            setDcaCapitalAllocation(data.dcaCapitalAllocation);
         }
 
         if (data.historicalCandles) {
@@ -800,6 +817,23 @@ export default function Home() {
             }
         } catch (e) {
             console.error('Error toggling AI Grid Orders:', e);
+        }
+    };
+
+    const handleToggleDca = async (checked: boolean) => {
+        setDcaEnabled(checked);
+        try {
+            const res = await fetch('/api/bot/status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dcaEnabled: checked })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                syncServerState(data.state);
+            }
+        } catch (e) {
+            console.error('Error toggling DCA:', e);
         }
     };
 
@@ -1478,6 +1512,56 @@ export default function Home() {
                                         </div>
                                     </div>
                                 </div>
+
+                                <div className="grid grid-cols-1 border-t border-white/5 pt-3.5 mt-1">
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                                            Auto DCA (Dollar-Cost Averaging)
+                                        </label>
+                                        <div className="flex items-center h-8 gap-2 bg-white/2 border border-white/5 px-2.5 rounded-lg">
+                                            <span className={`text-[9px] font-black ${dcaEnabled ? 'text-[#226af0]' : 'text-slate-500'}`}>
+                                                {dcaEnabled ? 'ACTIVE' : 'OFF'}
+                                            </span>
+                                            <label className="relative inline-flex items-center cursor-pointer ml-auto">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={dcaEnabled}
+                                                    onChange={(e) => handleToggleDca(e.target.checked)}
+                                                    className="sr-only peer"
+                                                />
+                                                <div className="w-7 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#00c076] shadow-sm"></div>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {dcaEnabled && (
+                                    <div className="grid grid-cols-2 gap-3.5 border-t border-white/5 pt-3.5 mt-1">
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">DCA Max Steps</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="10"
+                                                value={dcaMaxSteps}
+                                                onChange={(e) => handleParamChange('dcaMaxSteps', parseInt(e.target.value))}
+                                                className="bg-white/3 border border-white/5 rounded-lg py-1 px-2.5 outline-none font-mono text-slate-200 focus:border-[#226af0]"
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">DCA Trigger Drop (%)</label>
+                                            <input
+                                                type="number"
+                                                min="0.1"
+                                                max="50"
+                                                step="0.5"
+                                                value={dcaPriceDropPct}
+                                                onChange={(e) => handleParamChange('dcaPriceDropPct', parseFloat(e.target.value))}
+                                                className="bg-white/3 border border-white/5 rounded-lg py-1 px-2.5 outline-none font-mono text-slate-200 focus:border-[#226af0]"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div className="grid grid-cols-1 border-t border-white/5 pt-3.5 mt-1 gap-3">
                                     <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">

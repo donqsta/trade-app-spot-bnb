@@ -82,6 +82,7 @@ export interface Position {
     dcaStep?: number;
     dcaMaxSteps?: number;
     dcaTotalMargin?: number;
+    dcaPriceDropPct?: number;
 }
 
 export interface TradeLog {
@@ -1735,7 +1736,7 @@ class BotEngine {
                     // DCA check in backtest!
                     if (this.dcaEnabled && activePos.dcaStep && activePos.dcaStep < (activePos.dcaMaxSteps || this.dcaMaxSteps)) {
                         const dropPct = ((activePos.entryPrice - candles[candleIndex].low) / activePos.entryPrice) * 100;
-                        const requiredDrop = this.dcaPriceDropPct;
+                        const requiredDrop = activePos.dcaPriceDropPct ?? this.dcaPriceDropPct;
                         if (dropPct >= requiredDrop) {
                             const nextStep = activePos.dcaStep + 1;
                             const totalMargin = activePos.dcaTotalMargin || activePos.margin;
@@ -2003,6 +2004,13 @@ class BotEngine {
                         }
                     }
 
+                    let posDcaPriceDropPct: number | undefined = undefined;
+                    if (this.dcaEnabled && direction === 1) {
+                        const initialSlDistPct = ((entryFillPrice - sl) / entryFillPrice) * 100;
+                        const stepsToFit = Math.max(1, this.dcaMaxSteps - 1);
+                        posDcaPriceDropPct = Math.max(0.1, Math.min(5.0, (initialSlDistPct / stepsToFit) * 0.8));
+                    }
+
                     activePos = {
                         type: direction,
                         entryPrice: entryFillPrice,
@@ -2019,7 +2027,8 @@ class BotEngine {
                         tpMult: dynamicTpMultiplier,
                         dcaStep: (this.dcaEnabled && direction === 1) ? 1 : undefined,
                         dcaMaxSteps: (this.dcaEnabled && direction === 1) ? this.dcaMaxSteps : undefined,
-                        dcaTotalMargin: (this.dcaEnabled && direction === 1) ? (backtestBalance * dynamicRiskRatio) : undefined
+                        dcaTotalMargin: (this.dcaEnabled && direction === 1) ? (backtestBalance * dynamicRiskRatio) : undefined,
+                        dcaPriceDropPct: posDcaPriceDropPct
                     };
 
                     trades.push({
@@ -2532,6 +2541,14 @@ class BotEngine {
         // Entry-side taker fee: charged on full notional.
         const entryFee = finalEntryPrice * tokenSize * this.takerFeeRate;
 
+        let posDcaPriceDropPct: number | undefined = undefined;
+        if (this.dcaEnabled) {
+            const initialSlDistPct = ((finalEntryPrice - sl) / finalEntryPrice) * 100;
+            const stepsToFit = Math.max(1, this.dcaMaxSteps - 1);
+            posDcaPriceDropPct = Math.max(0.1, Math.min(5.0, (initialSlDistPct / stepsToFit) * 0.8));
+            this.addLog('BOT', `🛡️ SMART DCA [${pair}]: Auto-calibrated DCA trigger drop to ${posDcaPriceDropPct.toFixed(3)}% based on Stop Loss distance (${initialSlDistPct.toFixed(2)}%)`, 'info-line');
+        }
+
         const newPos: Position = {
             symbol: pair,
             type: 'LONG',
@@ -2559,6 +2576,7 @@ class BotEngine {
             dcaStep: this.dcaEnabled ? 1 : undefined,
             dcaMaxSteps: this.dcaEnabled ? this.dcaMaxSteps : undefined,
             dcaTotalMargin: this.dcaEnabled ? margin : undefined,
+            dcaPriceDropPct: posDcaPriceDropPct,
         };
 
         if (this.liveTradingMode === 'simulated') {
@@ -2789,7 +2807,7 @@ class BotEngine {
             // Check for DCA step execution
             if (this.dcaEnabled && pos.type === 'LONG' && pos.dcaStep && pos.dcaStep < (pos.dcaMaxSteps || this.dcaMaxSteps)) {
                 const dropPct = ((pos.entryPrice - currentPrice) / pos.entryPrice) * 100;
-                const requiredDrop = this.dcaPriceDropPct;
+                const requiredDrop = pos.dcaPriceDropPct ?? this.dcaPriceDropPct;
                 if (dropPct >= requiredDrop) {
                     const oldMargin = pos.margin;
                     const success = await this.executeDcaStep(pos, currentPrice);
