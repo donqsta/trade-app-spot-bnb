@@ -2434,8 +2434,13 @@ class BotEngine {
             sizeUSDT = margin * initialFraction;
         }
 
-        if (margin > this.marginFree) {
-            this.addLog('BOT', `Cancelled order [${pair}]: Insufficient USDT balance. Required: ${margin.toFixed(2)}, Available: ${this.marginFree.toFixed(2)}`, 'warning-line');
+        // Enforce minimum order size of 5 USDT
+        if (sizeUSDT < 5) {
+            sizeUSDT = 5;
+        }
+
+        if (sizeUSDT > this.marginFree) {
+            this.addLog('BOT', `Cancelled order [${pair}]: Insufficient USDT balance. Required: ${sizeUSDT.toFixed(2)}, Available: ${this.marginFree.toFixed(2)}`, 'warning-line');
             return;
         }
 
@@ -3180,7 +3185,12 @@ class BotEngine {
             return false;
         }
 
-        const stepMargin = totalMargin * allocationFraction;
+        let stepMargin = totalMargin * allocationFraction;
+
+        // Enforce minimum DCA step size of 5 USDT
+        if (stepMargin < 5) {
+            stepMargin = 5;
+        }
 
         // Check if there is enough free margin
         if (stepMargin > this.marginFree) {
