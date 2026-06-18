@@ -1,21 +1,17 @@
 # =============================================================================
 # Nixpacks Configuration for Coolify / Railway
-#
-# Installs Node.js + Python in one deployment. Python deps are installed by the
-# python provider from root requirements.txt (which includes ml/requirements.txt).
+# Node.js only — no Python dependency.
 # =============================================================================
 
-providers = ["...", "python"]
+providers = ["node"]
 
 [variables]
-NIXPACKS_NODE_VERSION = "20"
-NIXPACKS_PYTHON_VERSION = "3.12"
+NIXPACKS_NODE_VERSION = "22"
 HOME = "/data"
 
 [phases.install]
 cmds = ["npm ci", "npm install -g @trustwallet/cli@0.18.0"]
 
 [phases.build]
-# Wait for both npm ci AND python:install before building Next.js
-dependsOn = ["install", "python:install"]
-cmds = ["..."]
+dependsOn = ["install"]
+cmds = ["npm run build"]
