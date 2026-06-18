@@ -133,6 +133,19 @@ export class TWAKBscClient {
         return Date.now() < TWAKBscClient._rateLimitedUntil;
     }
 
+    /**
+     * Try to extract a BSCScan/transaction hash from raw CLI output.
+     * TWAK sometimes prints progress lines (including bscscan URLs) to stdout
+     * before the JSON result — or exits non-zero even though the swap was submitted.
+     */
+    private static extractTxHashFromOutput(text: string): string {
+        // Match full 0x hex hash from a bscscan URL or a standalone hash line
+        const urlMatch = text.match(/bscscan\.com\/tx\/(0x[0-9a-fA-F]{64})/);
+        if (urlMatch) return urlMatch[1];
+        const hashMatch = text.match(/\b(0x[0-9a-fA-F]{64})\b/);
+        return hashMatch ? hashMatch[1] : '';
+    }
+
     private async run(args: string[]): Promise<any> {
         if (TWAKBscClient.isRateLimited()) {
             throw new Error('TWAK rate limited, retry later');
@@ -143,16 +156,26 @@ export class TWAKBscClient {
         // from the environment; passing it as a CLI flag causes a deprecation
         // warning and in some versions a VALIDATION_ERROR.
 
+        // Use a longer timeout for swap commands — LiquidMesh routing can be slow.
+        const isSwap = args[0] === 'swap';
+        const timeoutMs = isSwap ? 90_000 : 45_000;
+
+        // Captured output accessible from outer catch even when inner throw re-propagates.
+        let capturedStdout = '';
+        let capturedStderr = '';
+
         try {
             const { stdout, stderr } = await execFileAsync(TWAK_BIN, fullArgs, {
-                timeout: 45_000,
+                timeout: timeoutMs,
                 shell: TWAK_SHELL,
                 // Forward the full environment so TWAK_WALLET_PASSWORD is visible
                 env: { ...process.env },
             });
+            capturedStdout = stdout || '';
+            capturedStderr = stderr || '';
 
             // Filter stderr: "Note:" lines are advisory warnings, not errors.
-            const errLines = (stderr || '').split('\n').filter(
+            const errLines = capturedStderr.split('\n').filter(
                 l => l.trim() && !l.trim().startsWith('Note:')
             );
 
@@ -161,7 +184,7 @@ export class TWAKBscClient {
                 throw new Error('TWAK rate limited');
             }
 
-            const output = stdout.trim();
+            const output = capturedStdout.trim();
             if (!output) throw new Error('TWAK returned empty response');
             
             // Extract the JSON object or array block if there is progress output before it
@@ -174,9 +197,33 @@ export class TWAKBscClient {
                     jsonString = output.substring(firstBrace, lastBrace + 1);
                 }
             }
-            return JSON.parse(jsonString);
+
+            try {
+                return JSON.parse(jsonString);
+            } catch {
+                // JSON parse failed — fall through to outer catch which has full stdout context.
+                throw new Error(`TWAK returned non-JSON output: ${output.slice(0, 200)}`);
+            }
         } catch (e: any) {
-            // e.stderr may contain "Note:" advisory lines — strip them before surfacing.
+            // e.stderr / e.stdout are present when execFile throws (non-zero exit code).
+            // For internal re-throws (JSON parse fail, rate limit, etc.), use capturedStdout/err.
+            const combinedOutput =
+                (e.stdout || capturedStdout) + ' ' +
+                (e.stderr || capturedStderr) + ' ' +
+                (e.message || '');
+
+            // ── Key fix: if this is a swap command and the CLI output contains a tx hash,
+            // the swap was already submitted on-chain (approval + swap both went through).
+            // Return a partial success so the bot closes the position instead of keeping
+            // it open as a ghost position that would never resolve.
+            if (isSwap) {
+                const txHash = TWAKBscClient.extractTxHashFromOutput(combinedOutput);
+                if (txHash) {
+                    console.warn(`[TWAK] swap error but on-chain txHash found (${txHash}) — treating as success.`);
+                    return { txHash, toAmount: 0, received: 0 };
+                }
+            }
+
             const rawErr: string = e.stderr || e.stdout || e.message || String(e);
             const cleanErr = rawErr
                 .split('\n')

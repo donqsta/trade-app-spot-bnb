@@ -3517,11 +3517,14 @@ class BotEngine {
                     } else {
                         this.addLog('BOT', `📡 BSC TWAK: Swapping ${sellAmt.toFixed(6)} ${bscSym} → USDT (closing position)...`, 'info-line');
                         const sellRes = await twak.sellToken(sellAmt, bscSym, 1);
+                        // executedPrice may be 0 if TWAK CLI exited non-zero but swap was on-chain
+                        // (LiquidMesh routing). Fall back to rawExit price estimate.
                         const actualExit = sellRes.executedPrice > 0 ? sellRes.executedPrice : rawExit;
                         if (isCompetitionActive() && sellRes.txHash) {
                             recordTrade(sellRes.txHash);
                         }
-                        this.addLog('BOT', `✅ BSC TWAK closed position. Price: ${this.formatPrice(actualExit)} | TX: ${sellRes.txHash.slice(0, 12)}...`, pos.pnl >= 0 ? 'buy-line' : 'sell-line');
+                        const priceNote = sellRes.toAmount <= 0 ? ' (price estimated — swap confirmed on-chain)' : '';
+                        this.addLog('BOT', `✅ BSC TWAK closed position. Price: ${this.formatPrice(actualExit)}${priceNote} | TX: ${sellRes.txHash.slice(0, 12)}...`, pos.pnl >= 0 ? 'buy-line' : 'sell-line');
                     }
                 } catch (e: any) {
                     this.addLog('BOT', `⚠️ BSC TWAK position close failed: ${e.message}. Retrying manually or automatically.`, 'warning-line');
