@@ -132,13 +132,9 @@ export default function Home() {
     const [confidence, setConfidence] = useState(70);
     const [leverage, setLeverage] = useState(1);
     const [risk, setRisk] = useState(2);
-    const [dailyProfitTarget, setDailyProfitTarget] = useState(5);
     const [maxDailyDrawdown, setMaxDailyDrawdown] = useState(5);
-    const [stopOnTargetMet, setStopOnTargetMet] = useState(false);
-    const [pauseNewEntries, setPauseNewEntries] = useState(false);
     const [dailyPnL, setDailyPnL] = useState(0);
-    const [dailyProfitTargetUsd, setDailyProfitTargetUsd] = useState(0);
-    const [dailyTargetProgressPct, setDailyTargetProgressPct] = useState(0);
+    const [maxDailyDrawdownLimitUsd, setMaxDailyDrawdownLimitUsd] = useState(0);
     const [tpAtr, setTpAtr] = useState(2.0);
     const [slAtr, setSlAtr] = useState(1.5);
     const [isTraining, setIsTraining] = useState(false);
@@ -417,26 +413,14 @@ export default function Home() {
         if (typeof data.riskRatio === 'number') {
             setRisk(data.riskRatio * 100);
         }
-        if (typeof data.dailyProfitTarget === 'number') {
-            setDailyProfitTarget(data.dailyProfitTarget * 100);
-        }
         if (typeof data.maxDailyDrawdown === 'number') {
             setMaxDailyDrawdown(data.maxDailyDrawdown * 100);
-        }
-        if (typeof data.stopOnTargetMet === 'boolean') {
-            setStopOnTargetMet(data.stopOnTargetMet);
-        }
-        if (typeof data.pauseNewEntries === 'boolean') {
-            setPauseNewEntries(data.pauseNewEntries);
         }
         if (typeof data.dailyPnL === 'number') {
             setDailyPnL(data.dailyPnL);
         }
-        if (typeof data.dailyProfitTargetUsd === 'number') {
-            setDailyProfitTargetUsd(data.dailyProfitTargetUsd);
-        }
-        if (typeof data.dailyTargetProgressPct === 'number') {
-            setDailyTargetProgressPct(data.dailyTargetProgressPct);
+        if (typeof data.maxDailyDrawdownLimitUsd === 'number') {
+            setMaxDailyDrawdownLimitUsd(data.maxDailyDrawdownLimitUsd);
         }
         if (typeof data.tpAtrMultiplier === 'number') {
             setTpAtr(data.tpAtrMultiplier);
@@ -883,40 +867,6 @@ export default function Home() {
         }
     };
 
-    const handleToggleStopOnTargetMet = async (checked: boolean) => {
-        setStopOnTargetMet(checked);
-        try {
-            const res = await fetch('/api/bot/status', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ stopOnTargetMet: checked })
-            });
-            if (res.ok) {
-                const data = await res.json();
-                syncServerState(data.state);
-            }
-        } catch (e) {
-            console.error('Error toggling stop when daily target met:', e);
-        }
-    };
-
-    const handleTogglePauseNewEntries = async (checked: boolean) => {
-        setPauseNewEntries(checked);
-        try {
-            const res = await fetch('/api/bot/status', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pauseNewEntries: checked })
-            });
-            if (res.ok) {
-                const data = await res.json();
-                syncServerState(data.state);
-            }
-        } catch (e) {
-            console.error('Error toggling pause on new entries:', e);
-        }
-    };
-
     return (
         <div className="flex flex-col h-screen max-h-screen overflow-hidden text-slate-100 bg-[#08090c]">
             {/* HEADER */}
@@ -1076,6 +1026,45 @@ export default function Home() {
                                     </div>
                                 );
                             })}
+                    </div>
+
+                    {/* Active Trading Pairs Selection */}
+                    <div className="shrink-0 border-t border-white/5 p-3 flex flex-col gap-2 bg-[#0c0d12]/40">
+                        <div className="flex items-center justify-between">
+                            <label className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Active Trading Pairs</label>
+                            <span className="text-[9px] text-[#226af0] font-black">{activePairs.length} Selected</span>
+                        </div>
+                        <input
+                            type="text"
+                            placeholder="Search pair config..."
+                            value={pairFilterQuery}
+                            onChange={(e) => setPairFilterQuery(e.target.value)}
+                            className="w-full bg-[#181d28]/70 border border-white/5 px-2 py-1.5 rounded-lg text-[10px] outline-none text-slate-200 placeholder-slate-500 focus:border-[#226af0] focus:bg-[#181d28] transition-all font-semibold"
+                        />
+                        <div className="max-h-36 overflow-y-auto pr-1 border border-white/5 rounded-lg bg-slate-950/40 p-1.5 custom-scrollbar">
+                            <div className="grid grid-cols-3 gap-1">
+                                {SELECTABLE_TOKENS
+                                    .filter(token => token.toLowerCase().includes(pairFilterQuery.toLowerCase()))
+                                    .map((token) => {
+                                        const isActive = activePairs.includes(token);
+                                        const displaySym = token.replace('USDT', '');
+                                        return (
+                                            <button
+                                                key={token}
+                                                type="button"
+                                                onClick={() => handleToggleActivePair(token)}
+                                                className={`text-[9px] font-bold py-1 px-0.5 border rounded text-center transition-all cursor-pointer ${
+                                                    isActive
+                                                        ? 'border-[#226af0] text-[#226af0] bg-[#226af0]/10 shadow-[0_0_8px_rgba(34,106,240,0.1)]'
+                                                        : 'border-white/5 bg-slate-900/40 text-slate-500 hover:text-slate-300 hover:border-white/10'
+                                                }`}
+                                            >
+                                                {displaySym}
+                                            </button>
+                                        );
+                                    })}
+                            </div>
+                        </div>
                     </div>
                 </aside>
 
@@ -1348,46 +1337,6 @@ export default function Home() {
                                         )}
                                     </div>
                                 )}
-
-                                {/* Active Trading Pairs Selection Grid */}
-                                <div className="flex flex-col gap-2.5 bg-white/2 border border-white/5 rounded-lg p-2.5 mt-1">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Active Trading Pairs</label>
-                                        <span className="text-[9px] text-[#226af0] font-black">{activePairs.length} Selected</span>
-                                    </div>
-                                    <input
-                                        type="text"
-                                        placeholder="Search active pair config..."
-                                        value={pairFilterQuery}
-                                        onChange={(e) => setPairFilterQuery(e.target.value)}
-                                        className="w-full bg-[#181d28]/70 border border-white/5 px-2 py-1 rounded text-[10px] outline-none text-slate-200 placeholder-slate-500 focus:border-[#226af0] focus:bg-[#181d28] transition-all font-semibold"
-                                    />
-                                    <div className="max-h-40 overflow-y-auto pr-1 border border-white/5 rounded bg-slate-950/40 p-1.5 custom-scrollbar">
-                                        <div className="grid grid-cols-4 gap-1">
-                                            {SELECTABLE_TOKENS
-                                                .filter(token => token.toLowerCase().includes(pairFilterQuery.toLowerCase()))
-                                                .map((token) => {
-                                                    const isActive = activePairs.includes(token);
-                                                    const displaySym = token.replace('USDT', '');
-                                                    return (
-                                                        <button
-                                                            key={token}
-                                                            type="button"
-                                                            onClick={() => handleToggleActivePair(token)}
-                                                            className={`text-[9px] font-bold py-1 px-0.5 border rounded text-center transition-all cursor-pointer ${
-                                                                isActive
-                                                                    ? 'border-[#226af0] text-[#226af0] bg-[#226af0]/10 shadow-[0_0_8px_rgba(34,106,240,0.1)]'
-                                                                    : 'border-white/5 bg-slate-900/40 text-slate-500 hover:text-slate-300 hover:border-white/10'
-                                                            }`}
-                                                        >
-                                                            {displaySym}
-                                                        </button>
-                                                    );
-                                                })}
-                                        </div>
-                                    </div>
-                                </div>
-
 
                                 {/* ===== LLM BRAIN CONFIG (Phase 1) ===== */}
                                 <div className="flex flex-col gap-2 mt-2 border-t border-white/5 pt-2">
@@ -1705,48 +1654,19 @@ export default function Home() {
 
                                 <div className="grid grid-cols-1 border-t border-white/5 pt-3.5 mt-1 gap-3">
                                     <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                                        Daily Profit Target
+                                        Daily Risk Limits
                                     </label>
 
                                     <div className="bg-white/2 border border-white/5 rounded-lg p-2.5 flex flex-col gap-1.5">
                                         <div className="flex justify-between items-center text-[10px] font-bold uppercase">
                                             <span className="text-slate-400">PnL Today</span>
                                             <span className={`font-mono ${dailyPnL >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]'}`}>
-                                                {dailyPnL >= 0 ? '+' : ''}${dailyPnL.toFixed(2)} / ${dailyProfitTargetUsd.toFixed(2)}
+                                                {dailyPnL >= 0 ? '+' : ''}${dailyPnL.toFixed(2)}
                                             </span>
                                         </div>
-                                        <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden border border-white/5">
-                                            <div
-                                                className={`h-full transition-all duration-500 ${dailyTargetProgressPct >= 100 ? 'bg-[#ffb300]' : 'bg-[#00c076]'}`}
-                                                style={{ width: `${Math.min(100, Math.max(0, dailyTargetProgressPct))}%` }}
-                                            />
+                                        <div className="text-[9px] text-slate-500">
+                                            Max daily loss: ${maxDailyDrawdownLimitUsd.toFixed(2)} ({maxDailyDrawdown}% capital)
                                         </div>
-                                        <div className="flex justify-between text-[9px] text-slate-500">
-                                            <span>{dailyTargetProgressPct.toFixed(1)}% target progress</span>
-                                            {pauseNewEntries && (
-                                                <span className="text-[#ffb300] font-black">PROTECTING</span>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div className="flex flex-col gap-1">
-                                        <div className="flex justify-between items-center text-[10px] font-bold uppercase">
-                                            <span className="text-slate-400">Profit Target (% Capital)</span>
-                                            <span className="text-[#ffb300] font-mono">{dailyProfitTarget}% (~${dailyProfitTargetUsd.toFixed(0)})</span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="1"
-                                            max="50"
-                                            step="0.5"
-                                            value={dailyProfitTarget}
-                                            onChange={(e) => {
-                                                const val = parseFloat(e.target.value);
-                                                setDailyProfitTarget(val);
-                                                handleParamChange('dailyProfitTarget', val);
-                                            }}
-                                            className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#ffb300]"
-                                        />
                                     </div>
 
                                     <div className="flex flex-col gap-1">
@@ -1767,46 +1687,6 @@ export default function Home() {
                                             }}
                                             className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#ff3b30]"
                                         />
-                                    </div>
-
-                                    <div className="flex flex-col gap-1">
-                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                                            Pause entries when target met
-                                        </label>
-                                        <div className="flex items-center h-8 gap-2 bg-white/2 border border-white/5 px-2.5 rounded-lg">
-                                            <span className={`text-[9px] font-black ${stopOnTargetMet ? 'text-[#ffb300]' : 'text-slate-500'}`}>
-                                                {stopOnTargetMet ? 'ON' : 'OFF'}
-                                            </span>
-                                            <label className="relative inline-flex items-center cursor-pointer ml-auto">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={stopOnTargetMet}
-                                                    onChange={(e) => handleToggleStopOnTargetMet(e.target.checked)}
-                                                    className="sr-only peer"
-                                                />
-                                                <div className="w-7 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#ffb300] shadow-sm"></div>
-                                            </label>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex flex-col gap-1">
-                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                                            Pause all new entries (Manual / LLM)
-                                        </label>
-                                        <div className="flex items-center h-8 gap-2 bg-white/2 border border-white/5 px-2.5 rounded-lg">
-                                            <span className={`text-[9px] font-black ${pauseNewEntries ? 'text-[#ff9500]' : 'text-slate-500'}`}>
-                                                {pauseNewEntries ? 'PAUSE' : 'ACTIVE'}
-                                            </span>
-                                            <label className="relative inline-flex items-center cursor-pointer ml-auto">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={pauseNewEntries}
-                                                    onChange={(e) => handleTogglePauseNewEntries(e.target.checked)}
-                                                    className="sr-only peer"
-                                                />
-                                                <div className="w-7 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#ff9500] shadow-sm"></div>
-                                            </label>
-                                        </div>
                                     </div>
                                 </div>
 

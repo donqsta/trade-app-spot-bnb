@@ -81,6 +81,8 @@ export interface Position {
     dcaMaxSteps?: number;
     dcaTotalMargin?: number;
     dcaPriceDropPct?: number;
+    /** Price of the last initial entry or DCA fill — next step requires drop from here. */
+    dcaLastFillPrice?: number;
     lastDcaAttemptTime?: number;
 }
 
@@ -312,6 +314,8 @@ class BotEngine {
     public dcaMaxSteps = 3;
     public dcaPriceDropPct = 5.0;
     public dcaCapitalAllocation = [0.2, 0.3, 0.5];
+    /** Minimum wait between DCA steps (prevents rapid-fire averaging). */
+    public dcaCooldownMs = 300_000;
     public quantOperatorEnabled = false;
     public quantOperatorThoughts: { time: string; message: string; type: 'info' | 'decision' | 'warning' }[] = [];
     // Public so persistence can snapshot/restore the operator cooldown.
@@ -377,12 +381,6 @@ class BotEngine {
     public dailyPnL = 0;
     public dailyPnLResetDate = '';
     public maxDailyDrawdown = 0.05; // 5% max daily loss
-    /** Daily profit target as fraction of initialCapital (0.05 = 5%). */
-    public dailyProfitTarget = 0.05;
-    /** When true, block new entries after daily profit target is met. */
-    public stopOnTargetMet = false;
-    /** Set by LLM targetMetAction or stopOnTargetMet circuit breaker. */
-    public pauseNewEntries = false;
     /** Highest equity seen today (for drawdown-from-peak metric). */
     private dailyEquityPeak = 0;
     public lastClosedTime: { [symbol: string]: number } = {};
@@ -452,6 +450,9 @@ class BotEngine {
             if (snap) {
                 applySnapshot(this, snap);
                 this.leverage = 1; // Force 1x Spot leverage (no leverage)
+                if (this.dcaEnabled && this.openPositions.length > 0) {
+                    this.backfillDcaForOpenPositions();
+                }
                 const info = getPersistenceInfo();
                 const ageSec = info.mtime ? Math.round((Date.now() - info.mtime) / 1000) : 0;
                 this.addLog('SYSTEM', `💾 Restored state from disk (${info.path}, ${ageSec}s ago). Binance positions will auto-sync via API.`, 'info-line');
@@ -1926,7 +1927,7 @@ class BotEngine {
                     if (this.dcaEnabled && direction === 1) {
                         const initialSlDistPct = ((entryFillPrice - sl) / entryFillPrice) * 100;
                         const stepsToFit = Math.max(1, this.dcaMaxSteps - 1);
-                        posDcaPriceDropPct = Math.max(0.1, Math.min(5.0, (initialSlDistPct / stepsToFit) * 0.8));
+                        posDcaPriceDropPct = Math.max(this.dcaPerStepDropFloor(), Math.min(this.dcaPriceDropPct, (initialSlDistPct / stepsToFit) * 0.8));
                     }
 
                     activePos = {
@@ -2075,24 +2076,9 @@ class BotEngine {
             this.dailyPnL = 0;
             this.dailyPnLResetDate = today;
             this.dailyEquityPeak = 0;
-            this.pauseNewEntries = false;
         }
 
         this.refreshDailyEquityPeak();
-
-        const targetUsd = this.getDailyProfitTargetUsd();
-        if (this.stopOnTargetMet && targetUsd > 0 && this.dailyPnL >= targetUsd) {
-            if (!this.pauseNewEntries) {
-                this.pauseNewEntries = true;
-                this.addLog('BOT', `🎯 DAILY TARGET: Daily profit target reached (${this.dailyPnL.toFixed(2)} / ${targetUsd.toFixed(2)}). Paused new entries to secure profit.`, 'buy-line');
-            }
-            return;
-        }
-
-        if (this.pauseNewEntries) {
-            this.addLog('BOT', `⏸️ PAUSE ENTRIES: Bot is in protection mode — no new entries allowed (daily target / LLM).`, 'warning-line');
-            return;
-        }
 
         if (this.dailyPnL <= -(this.initialCapital * this.maxDailyDrawdown)) {
             this.addLog('BOT', `🛑 DAILY LIMIT: Daily drawdown limit reached (${(this.maxDailyDrawdown * 100)}%). Paused new trades for the rest of the day to protect capital.`, 'warning-line');
@@ -2445,11 +2431,14 @@ class BotEngine {
         const entryFee = finalEntryPrice * tokenSize * this.takerFeeRate;
 
         let posDcaPriceDropPct: number | undefined = undefined;
+        let dcaLastFillPrice: number | undefined = undefined;
         if (this.dcaEnabled) {
             const initialSlDistPct = ((finalEntryPrice - sl) / finalEntryPrice) * 100;
             const stepsToFit = Math.max(1, this.dcaMaxSteps - 1);
-            posDcaPriceDropPct = Math.max(0.1, Math.min(5.0, (initialSlDistPct / stepsToFit) * 0.8));
-            this.addLog('BOT', `🛡️ SMART DCA [${pair}]: Auto-calibrated DCA trigger drop to ${posDcaPriceDropPct.toFixed(3)}% based on Stop Loss distance (${initialSlDistPct.toFixed(2)}%)`, 'info-line');
+            const floor = this.dcaPerStepDropFloor();
+            posDcaPriceDropPct = Math.max(floor, Math.min(this.dcaPriceDropPct, (initialSlDistPct / stepsToFit) * 0.8));
+            dcaLastFillPrice = finalEntryPrice;
+            this.addLog('BOT', `🛡️ SMART DCA [${pair}]: Auto-calibrated DCA trigger drop to ${posDcaPriceDropPct.toFixed(3)}% from ${this.formatPrice(finalEntryPrice)} (SL dist ${initialSlDistPct.toFixed(2)}%)`, 'info-line');
         }
 
         const newPos: Position = {
@@ -2480,6 +2469,7 @@ class BotEngine {
             dcaMaxSteps: this.dcaEnabled ? this.dcaMaxSteps : undefined,
             dcaTotalMargin: this.dcaEnabled ? margin : undefined,
             dcaPriceDropPct: posDcaPriceDropPct,
+            dcaLastFillPrice: dcaLastFillPrice,
         };
 
         if (this.liveTradingMode === 'simulated') {
@@ -2708,18 +2698,24 @@ class BotEngine {
             marginSum += pos.margin;
 
             // Check for DCA step execution
-            if (this.dcaEnabled && pos.type === 'LONG' && pos.dcaStep && pos.dcaStep < (pos.dcaMaxSteps || this.dcaMaxSteps)) {
-                const dropPct = ((pos.entryPrice - currentPrice) / pos.entryPrice) * 100;
-                const requiredDrop = pos.dcaPriceDropPct ?? this.dcaPriceDropPct;
-                const timeSinceLastDcaAttempt = Date.now() - (pos.lastDcaAttemptTime || 0);
-                if (dropPct >= requiredDrop && timeSinceLastDcaAttempt >= 30000) {
-                    pos.lastDcaAttemptTime = Date.now();
-                    const oldMargin = pos.margin;
-                    const success = await this.executeDcaStep(pos, currentPrice);
-                    if (success) {
-                        pos.pnl = direction * pos.size * (currentPrice - pos.entryPrice);
-                        pos.pnlPercent = (pos.pnl / pos.margin) * 100;
-                        marginSum += (pos.margin - oldMargin);
+            if (this.dcaEnabled && pos.type === 'LONG' && !pos.isClosing) {
+                if (pos.dcaStep == null) {
+                    this.initializeDcaForPosition(pos);
+                }
+                if (pos.dcaStep && pos.dcaStep < (pos.dcaMaxSteps || this.dcaMaxSteps)) {
+                    const refPrice = pos.dcaLastFillPrice ?? pos.entryPrice;
+                    const dropPct = refPrice > 0 ? ((refPrice - currentPrice) / refPrice) * 100 : 0;
+                    const requiredDrop = pos.dcaPriceDropPct ?? this.dcaPriceDropPct;
+                    const timeSinceLastDcaAttempt = Date.now() - (pos.lastDcaAttemptTime || 0);
+                    if (dropPct >= requiredDrop && timeSinceLastDcaAttempt >= this.dcaCooldownMs) {
+                        pos.lastDcaAttemptTime = Date.now();
+                        const oldMargin = pos.margin;
+                        const success = await this.executeDcaStep(pos, currentPrice);
+                        if (success) {
+                            pos.pnl = direction * pos.size * (currentPrice - pos.entryPrice);
+                            pos.pnlPercent = (pos.pnl / pos.margin) * 100;
+                            marginSum += (pos.margin - oldMargin);
+                        }
                     }
                 }
             }
@@ -3117,13 +3113,85 @@ class BotEngine {
         this.recomputeLedger();
     }
 
+    /** Per-step drop floor: global trigger / max steps (e.g. 5% / 3 ≈ 1.67%). */
+    private dcaPerStepDropFloor(): number {
+        return this.dcaPriceDropPct / Math.max(1, this.dcaMaxSteps);
+    }
+
+    /** Recompute the % drop required before the next DCA step. */
+    private recalibrateDcaTrigger(pos: Position): void {
+        const slDistPct = pos.sl > 0 && pos.entryPrice > 0
+            ? ((pos.entryPrice - pos.sl) / pos.entryPrice) * 100
+            : this.dcaPriceDropPct;
+        const stepsRemaining = Math.max(
+            1,
+            (pos.dcaMaxSteps || this.dcaMaxSteps) - (pos.dcaStep || 1)
+        );
+        const floor = this.dcaPerStepDropFloor();
+        pos.dcaPriceDropPct = Math.max(
+            floor,
+            Math.min(this.dcaPriceDropPct, (slDistPct / stepsRemaining) * 0.8)
+        );
+    }
+
+    /**
+     * Attach DCA tracking fields to a LONG position that was opened before DCA was
+     * enabled or imported from on-chain sync without bot metadata.
+     */
+    private initializeDcaForPosition(pos: Position, reason?: string): boolean {
+        if (!this.dcaEnabled || pos.type !== 'LONG' || pos.dcaStep != null) {
+            return false;
+        }
+
+        pos.dcaStep = 1;
+        pos.dcaMaxSteps = this.dcaMaxSteps;
+        pos.dcaTotalMargin = pos.dcaTotalMargin ?? pos.margin;
+        pos.dcaLastFillPrice = pos.dcaLastFillPrice ?? pos.entryPrice;
+        if (pos.dcaPriceDropPct == null) {
+            this.recalibrateDcaTrigger(pos);
+        }
+
+        if (reason) {
+            this.addLog(
+                'BOT',
+                `🛡️ SMART DCA [${pos.symbol}]: ${reason} — trigger drop ${pos.dcaPriceDropPct!.toFixed(3)}% from ${this.formatPrice(pos.dcaLastFillPrice!)} (step 1/${pos.dcaMaxSteps})`,
+                'info-line'
+            );
+        }
+        return true;
+    }
+
+    /** Backfill DCA state for all open LONG positions (e.g. after toggling DCA ON). */
+    public backfillDcaForOpenPositions(): number {
+        let count = 0;
+        for (const pos of this.openPositions) {
+            if (this.initializeDcaForPosition(pos)) {
+                count++;
+            }
+        }
+        if (count > 0) {
+            this.addLog('SYSTEM', `Auto DCA: initialized ${count} open position(s) for DCA tracking.`, 'info-line');
+            this.persistState();
+        }
+        return count;
+    }
+
     private async executeDcaStep(pos: Position, currentPrice: number): Promise<boolean> {
         const pair = pos.symbol;
+        if ((pos as Position & { dcaInProgress?: boolean }).dcaInProgress) {
+            return false;
+        }
+        (pos as Position & { dcaInProgress?: boolean }).dcaInProgress = true;
         const nextStep = (pos.dcaStep || 1) + 1;
         const totalMargin = pos.dcaTotalMargin || pos.margin;
         const allocationFraction = this.dcaCapitalAllocation[nextStep - 1];
+        const clearDcaLock = () => {
+            (pos as Position & { dcaInProgress?: boolean }).dcaInProgress = false;
+        };
+
         if (!allocationFraction) {
             this.addLog('BOT', `❌ DCA [${pair}]: Error finding capital allocation config for step ${nextStep}.`, 'warning-line');
+            clearDcaLock();
             return false;
         }
 
@@ -3137,6 +3205,7 @@ class BotEngine {
         // Check if there is enough free margin
         if (stepMargin > this.marginFree) {
             this.addLog('BOT', `⚠️ DCA [${pair}]: Skipping DCA step ${nextStep} due to insufficient USDT. Required: ${stepMargin.toFixed(2)}, Available: ${this.marginFree.toFixed(2)}`, 'warning-line');
+            clearDcaLock();
             return false;
         }
 
@@ -3150,6 +3219,7 @@ class BotEngine {
             const twak = this.getTWAKClient();
             if (!twak) {
                 this.addLog('BOT', `❌ DCA [${pair}]: Failed to initialize TWAK client.`, 'warning-line');
+                clearDcaLock();
                 return false;
             }
             try {
@@ -3161,6 +3231,7 @@ class BotEngine {
                 this.addLog('BOT', `✅ DCA [${pair}] step ${nextStep} filled on-chain. Price: ${executedPrice.toLocaleString()} | TX: ${txHash.slice(0, 12)}...`, 'buy-line');
             } catch (err: any) {
                 this.addLog('BOT', `❌ DCA [${pair}] step ${nextStep} failed: ${err.message}`, 'warning-line');
+                clearDcaLock();
                 return false;
             }
         } else {
@@ -3184,6 +3255,9 @@ class BotEngine {
         pos.margin = newMargin;
         pos.entryPrice = newEntryPrice;
         pos.dcaStep = nextStep;
+        pos.dcaLastFillPrice = executedPrice;
+        pos.lastDcaAttemptTime = Date.now();
+        this.recalibrateDcaTrigger(pos);
         pos.feesPaid = (pos.feesPaid || 0) + stepFee;
 
         // Update local cache with averaged price
@@ -3259,6 +3333,7 @@ class BotEngine {
         this.recomputeLedger();
         this.persistState();
 
+        clearDcaLock();
         return true;
     }
 
@@ -3320,11 +3395,10 @@ class BotEngine {
             this.dailyPnL = 0;
             this.dailyPnLResetDate = today;
             this.dailyEquityPeak = 0;
-            this.pauseNewEntries = false;
         }
 
-        if (this.pauseNewEntries) {
-            this.addLog('BOT', `⏸️ PAUSE ENTRIES [${pair}]: Bot is in protection mode — no new entries allowed.`, 'warning-line');
+        if (this.dailyPnL <= -(this.initialCapital * this.maxDailyDrawdown)) {
+            this.addLog('BOT', `[CMC Signal] ${pair}: Daily drawdown limit reached — skipping entry.`, 'warning-line');
             return;
         }
 
@@ -3976,10 +4050,6 @@ class BotEngine {
         return score;
     }
 
-    public getDailyProfitTargetUsd(): number {
-        return Math.max(0, this.initialCapital * this.dailyProfitTarget);
-    }
-
     public getMaxDailyLossLimitUsd(): number {
         return Math.max(0, this.initialCapital * this.maxDailyDrawdown);
     }
@@ -4019,12 +4089,6 @@ class BotEngine {
         return Math.max(0, (this.dailyEquityPeak - equity) / this.dailyEquityPeak);
     }
 
-    private getDailyTargetProgressPct(): number {
-        const targetUsd = this.getDailyProfitTargetUsd();
-        if (targetUsd <= 0) return 0;
-        return (this.dailyPnL / targetUsd) * 100;
-    }
-
     /**
      * Attempt a real LLM decision for the Quant Operator. Returns null when
      * the LLM is not configured, times out, errors out, or returns junk —
@@ -4060,7 +4124,6 @@ class BotEngine {
             getCMCMarketSnapshot().catch(() => null),
         ]);
 
-        const targetUsd = this.getDailyProfitTargetUsd();
         const maxLossUsd = this.getMaxDailyLossLimitUsd();
 
         const xSentiment = sentiment ? {
@@ -4094,14 +4157,10 @@ class BotEngine {
             walletBalance: Number(this.balance.toFixed(2)),
             totalUnrealizedPnl: Number(this.getTotalUnrealizedPnl().toFixed(2)),
             dailyPnL: Number(this.dailyPnL?.toFixed?.(2) ?? 0),
-            dailyProfitTargetUsd: Number(targetUsd.toFixed(2)),
-            dailyProfitTargetPct: Number((this.dailyProfitTarget * 100).toFixed(2)),
-            dailyTargetProgressPct: Number(this.getDailyTargetProgressPct().toFixed(1)),
             maxDailyDrawdownLimitUsd: Number(maxLossUsd.toFixed(2)),
             maxDailyDrawdownPct: Number((this.maxDailyDrawdown * 100).toFixed(2)),
             hoursRemainingInDay: Number(computeHoursRemainingInDay().toFixed(2)),
             currentDrawdownFromPeak: Number(this.getCurrentDrawdownFromPeak().toFixed(4)),
-            pauseNewEntries: this.pauseNewEntries,
             ensembleSignal: input.ensembleSignal,
             costs: {
                 takerFeeRate: this.takerFeeRate,
@@ -4175,7 +4234,6 @@ class BotEngine {
             tpExtensionMultiplier: clamp(d.tpExtensionMultiplier, 0.7, 2.0),
             trailingTpAggressiveness: clamp(d.trailingTpAggressiveness, 0.5, 2.0),
             forceExit: d.forceExit === true,
-            targetMetAction: d.targetMetAction === 'PAUSE_NEW_ENTRIES' ? 'PAUSE_NEW_ENTRIES' : 'NORMAL',
             positionAdjustments
         };
     } public async runQuantOperator(options?: boolean | { forceAdjustment?: boolean; isCandleClose?: boolean; targetPair?: string }): Promise<void> {
@@ -4360,16 +4418,6 @@ class BotEngine {
                     this.addLog('SYSTEM', `🛑 [LLM FORCE EXIT] Quant Brain ordered emergency close of ALL positions! Reason: ${llmDecision.reasoning}`, 'warning-line');
                     await this.llmForceCloseAll();
                 }
-
-                // Daily target defense: pause new entries when target met.
-                const progressPct = this.getDailyTargetProgressPct();
-                if (llmDecision.targetMetAction === 'PAUSE_NEW_ENTRIES' || progressPct >= 100) {
-                    if (!this.pauseNewEntries) {
-                        this.pauseNewEntries = true;
-                        this.addLog('SYSTEM', `🎯 [LLM TARGET] Activated protection mode: paused new entries (daily target progress: ${progressPct.toFixed(1)}%).`, 'buy-line');
-                    }
-                }
-
 
                 // Dynamic LLM Position Adjustments
                 if (llmDecision.positionAdjustments && llmDecision.positionAdjustments.length > 0) {
@@ -4751,6 +4799,13 @@ class BotEngine {
                         let entryPrice = existingPos ? existingPos.entryPrice : 0;
                         let openTime = existingPos ? existingPos.openTime : 0;
 
+                        if (existingPos && (!openTime || openTime > Date.now())) {
+                            const cached = this.tokenEntryPrices[pairSymbol];
+                            openTime = cached?.openTime && cached.openTime <= Date.now()
+                                ? cached.openTime
+                                : Date.now();
+                        }
+
                         if (!existingPos) {
                             const cached = this.tokenEntryPrices[pairSymbol];
                             if (cached && cached.entryPrice > 0) {
@@ -4816,7 +4871,16 @@ class BotEngine {
                             dcaMaxSteps: existingPos ? existingPos.dcaMaxSteps : undefined,
                             dcaTotalMargin: existingPos ? existingPos.dcaTotalMargin : undefined,
                             dcaPriceDropPct: existingPos ? existingPos.dcaPriceDropPct : undefined,
+                            dcaLastFillPrice: existingPos?.dcaLastFillPrice ?? entryPrice,
+                            lastLlmCheckTime: existingPos?.lastLlmCheckTime && existingPos.lastLlmCheckTime <= Date.now()
+                                ? existingPos.lastLlmCheckTime
+                                : Date.now(),
+                            lastLlmCheckPrice: existingPos?.lastLlmCheckPrice ?? entryPrice,
                         };
+
+                        if (this.dcaEnabled) {
+                            this.initializeDcaForPosition(pos, 'Initialized from on-chain sync');
+                        }
 
                         // Update live PnL right away
                         if (currentPrice > 0) {
@@ -4974,15 +5038,10 @@ class BotEngine {
             fundingRateHourly: 0,
 
             dailyPnL: this.dailyPnL,
-            dailyProfitTarget: this.dailyProfitTarget,
-            dailyProfitTargetUsd: this.getDailyProfitTargetUsd(),
-            dailyTargetProgressPct: this.getDailyTargetProgressPct(),
             maxDailyDrawdown: this.maxDailyDrawdown,
             maxDailyDrawdownLimitUsd: this.getMaxDailyLossLimitUsd(),
             currentDrawdownFromPeak: this.getCurrentDrawdownFromPeak(),
             hoursRemainingInDay: computeHoursRemainingInDay(),
-            stopOnTargetMet: this.stopOnTargetMet,
-            pauseNewEntries: this.pauseNewEntries,
 
             // Phase 5: persistence status for ops visibility.
             persistence: getPersistenceInfo(),

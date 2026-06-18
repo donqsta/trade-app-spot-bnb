@@ -83,10 +83,7 @@ export interface PersistedBotState {
     // Daily risk controls
     dailyPnL: number;
     dailyPnLResetDate: string;
-    dailyProfitTarget?: number;
     maxDailyDrawdown?: number;
-    stopOnTargetMet?: boolean;
-    pauseNewEntries?: boolean;
     lastClosedTime: { [symbol: string]: number };
     totalFeesPaid: number;
 
@@ -153,10 +150,7 @@ export function buildSnapshot(engine: any): PersistedBotState {
 
         dailyPnL: engine.dailyPnL ?? 0,
         dailyPnLResetDate: engine.dailyPnLResetDate ?? '',
-        dailyProfitTarget: typeof engine.dailyProfitTarget === 'number' ? engine.dailyProfitTarget : 0.05,
         maxDailyDrawdown: typeof engine.maxDailyDrawdown === 'number' ? engine.maxDailyDrawdown : 0.05,
-        stopOnTargetMet: !!engine.stopOnTargetMet,
-        pauseNewEntries: !!engine.pauseNewEntries,
         lastClosedTime: engine.lastClosedTime || {},
         totalFeesPaid: engine.totalFeesPaid || 0,
 
@@ -220,10 +214,7 @@ export function applySnapshot(engine: any, snap: PersistedBotState): void {
 
     engine.dailyPnL = snap.dailyPnL || 0;
     engine.dailyPnLResetDate = snap.dailyPnLResetDate || '';
-    if (typeof snap.dailyProfitTarget === 'number') engine.dailyProfitTarget = snap.dailyProfitTarget;
     if (typeof snap.maxDailyDrawdown === 'number') engine.maxDailyDrawdown = snap.maxDailyDrawdown;
-    if (typeof snap.stopOnTargetMet === 'boolean') engine.stopOnTargetMet = snap.stopOnTargetMet;
-    if (typeof snap.pauseNewEntries === 'boolean') engine.pauseNewEntries = snap.pauseNewEntries;
     engine.lastClosedTime = snap.lastClosedTime || {};
     engine.totalFeesPaid = snap.totalFeesPaid || 0;
 

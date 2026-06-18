@@ -1,7 +1,8 @@
 /**
  * Trust Wallet Agent Kit (TWAK) client for BSC on-chain execution.
  *
- * Wraps the `twak` CLI (npx @trustwallet/cli) via child_process.
+ * Wraps the `twak` CLI via child_process.
+ * Prefers globally installed `twak`; falls back to `npx @trustwallet/cli`.
  * The CLI must be installed: npm install -g @trustwallet/cli
  * Credentials must be initialized: twak init --api-key <key> --api-secret <secret>
  *
@@ -14,9 +15,11 @@ import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
 
-// Use npx @trustwallet/cli to ensure the command runs even if the global twak package is not in the system PATH.
-const TWAK_BIN = 'npx';
-const TWAK_SHELL = true;
+/** Minimum BNB balance required before submitting a swap (gas on BSC). */
+const MIN_BNB_FOR_GAS = 0.0003;
+
+/** Prefer globally installed `twak`; fall back to `npx @trustwallet/cli`. */
+type TwakCli = { bin: string; prefixArgs: string[] };
 
 // Mapping from our internal pair symbol (e.g. "BNBUSDT") to BSC token contract address or supported symbol.
 // Using BEP-20 contract addresses for tokens that TWAK CLI cannot resolve by ticker symbol alone.
@@ -124,6 +127,7 @@ export class TWAKBscClient {
     private static _rateLimitedUntil = 0;
     private static _callCount = 0;
     private static _callWindowStart = 0;
+    private static _resolvedCli: TwakCli | null = null;
 
     // No walletPassword field — TWAK CLI reads TWAK_WALLET_PASSWORD from env automatically.
     // Passing --password on the CLI exposes it in shell history (TWAK's own warning).
@@ -146,30 +150,98 @@ export class TWAKBscClient {
         return hashMatch ? hashMatch[1] : '';
     }
 
+    /** Strip npm / Node noise so logs show the real TWAK failure reason. */
+    private static formatCliError(raw: string): string {
+        const meaningful = raw
+            .split('\n')
+            .map(l => l.trim())
+            .filter(l => {
+                if (!l) return false;
+                if (l.startsWith('Note:')) return false;
+                if (/ExperimentalWarning/i.test(l)) return false;
+                if (/npm warn/i.test(l)) return false;
+                if (/Use `--omit=dev`/i.test(l)) return false;
+                if (/Use `node --trace-warnings`/i.test(l)) return false;
+                return true;
+            });
+        const joined = meaningful.join(' ').trim();
+        return joined || raw.replace(/\s+/g, ' ').trim().slice(0, 800);
+    }
+
+    private static twakEnv(): NodeJS.ProcessEnv {
+        return {
+            ...process.env,
+            NODE_NO_WARNINGS: '1',
+            NPM_CONFIG_LOGLEVEL: 'error',
+        };
+    }
+
+    private async resolveCli(): Promise<TwakCli> {
+        if (TWAKBscClient._resolvedCli) return TWAKBscClient._resolvedCli;
+
+        const candidates: TwakCli[] = [
+            { bin: 'twak', prefixArgs: [] },
+            { bin: 'npx', prefixArgs: ['@trustwallet/cli'] },
+        ];
+
+        for (const cli of candidates) {
+            try {
+                await execFileAsync(cli.bin, [...cli.prefixArgs, '--version'], {
+                    timeout: 15_000,
+                    shell: true,
+                    env: TWAKBscClient.twakEnv(),
+                });
+                TWAKBscClient._resolvedCli = cli;
+                return cli;
+            } catch {
+                // try next candidate
+            }
+        }
+
+        TWAKBscClient._resolvedCli = { bin: 'npx', prefixArgs: ['@trustwallet/cli'] };
+        return TWAKBscClient._resolvedCli;
+    }
+
+    /** Reject swaps early when the agent wallet has no BNB for gas. */
+    async ensureGasForSwap(): Promise<void> {
+        const portfolio = await this.getPortfolio();
+        const bnb = portfolio.find(a => a.symbol?.toUpperCase() === 'BNB');
+        const bnbBal = bnb?.balance ?? 0;
+        if (bnbBal < MIN_BNB_FOR_GAS) {
+            throw new Error(
+                `Insufficient BNB for gas (${bnbBal.toFixed(6)} BNB). ` +
+                `Send at least 0.01 BNB to the agent wallet before swapping.`
+            );
+        }
+    }
+
     private async run(args: string[]): Promise<any> {
         if (TWAKBscClient.isRateLimited()) {
             throw new Error('TWAK rate limited, retry later');
         }
 
-        const fullArgs = ['@trustwallet/cli', ...args, '--json'];
+        const isSwap = args[0] === 'swap';
+        if (isSwap) {
+            await this.ensureGasForSwap();
+        }
+
+        const cli = await this.resolveCli();
+        const fullArgs = [...cli.prefixArgs, ...args, '--json'];
         // NOTE: do NOT add --password here. TWAK CLI reads TWAK_WALLET_PASSWORD
         // from the environment; passing it as a CLI flag causes a deprecation
         // warning and in some versions a VALIDATION_ERROR.
 
-        // Use a longer timeout for swap commands — LiquidMesh routing can be slow.
-        const isSwap = args[0] === 'swap';
-        const timeoutMs = isSwap ? 90_000 : 45_000;
+        const timeoutMs = isSwap ? 120_000 : 45_000;
 
         // Captured output accessible from outer catch even when inner throw re-propagates.
         let capturedStdout = '';
         let capturedStderr = '';
 
         try {
-            const { stdout, stderr } = await execFileAsync(TWAK_BIN, fullArgs, {
+            const { stdout, stderr } = await execFileAsync(cli.bin, fullArgs, {
                 timeout: timeoutMs,
-                shell: TWAK_SHELL,
-                // Forward the full environment so TWAK_WALLET_PASSWORD is visible
-                env: { ...process.env },
+                shell: true,
+                env: TWAKBscClient.twakEnv(),
             });
             capturedStdout = stdout || '';
             capturedStderr = stderr || '';
@@ -224,13 +296,10 @@ export class TWAKBscClient {
                 }
             }
 
-            const rawErr: string = e.stderr || e.stdout || e.message || String(e);
-            const cleanErr = rawErr
-                .split('\n')
-                .filter(l => !l.trim().startsWith('Note:'))
-                .join(' ')
-                .trim();
-            throw new Error(`TWAK CLI error [${args.join(' ')}]: ${cleanErr.slice(0, 300)}`);
+            const rawErr: string =
+                [e.stderr, e.stdout, e.message, String(e)].filter(Boolean).join('\n');
+            const cleanErr = TWAKBscClient.formatCliError(rawErr);
+            throw new Error(`TWAK CLI error [${args.join(' ')}]: ${cleanErr.slice(0, 800)}`);
         }
     }
 
@@ -404,32 +473,46 @@ export class TWAKBscClient {
         };
     }
 
-    /** Sell all (or specified amount) of a token back to USDT. */
+    /** Sell all (or specified amount) of a token back to USDT. Retries with higher slippage on failure. */
     async sellToken(
         tokenAmount: number,
         fromSymbol: string,
-        slippagePct = 1,
+        slippagePct = 3,
     ): Promise<SwapResult> {
-        // Use 8 decimal places for token amounts (e.g. BNB = 0.008486) to avoid
-        // rounding tiny amounts to 0, which causes TWAK CLI "Amount must be greater than 0".
         const formattedAmount = Number(tokenAmount.toFixed(8)).toString();
         if (Number(formattedAmount) <= 0) {
             throw new Error(`sellToken: tokenAmount ${tokenAmount} rounds to zero — aborting swap to prevent TWAK VALIDATION_ERROR`);
         }
-        const result = await this.run([
-            'swap', formattedAmount, fromSymbol, 'USDT',
-            '--chain', this.chain,
-            '--slippage', String(slippagePct),
-        ]);
-        const usdtReceived = parseFloat(result?.toAmount ?? result?.received ?? '0');
-        return {
-            txHash: result?.txHash ?? result?.hash ?? '',
-            fromAmount: tokenAmount,
-            toAmount: usdtReceived,
-            fromSymbol,
-            toSymbol: 'USDT',
-            executedPrice: tokenAmount > 0 ? usdtReceived / tokenAmount : 0,
-        };
+
+        const slippages = [...new Set([slippagePct, 5, 8].filter(s => s >= slippagePct))];
+        let lastError: Error | null = null;
+
+        for (let i = 0; i < slippages.length; i++) {
+            const slip = slippages[i];
+            try {
+                const result = await this.run([
+                    'swap', formattedAmount, fromSymbol, 'USDT',
+                    '--chain', this.chain,
+                    '--slippage', String(slip),
+                ]);
+                const usdtReceived = parseFloat(result?.toAmount ?? result?.received ?? '0');
+                return {
+                    txHash: result?.txHash ?? result?.hash ?? '',
+                    fromAmount: tokenAmount,
+                    toAmount: usdtReceived,
+                    fromSymbol,
+                    toSymbol: 'USDT',
+                    executedPrice: tokenAmount > 0 ? usdtReceived / tokenAmount : 0,
+                };
+            } catch (e: any) {
+                lastError = e instanceof Error ? e : new Error(String(e));
+                if (i < slippages.length - 1) {
+                    console.warn(`[TWAK] sellToken slippage ${slip}% failed, retrying at ${slippages[i + 1]}%…`);
+                }
+            }
+        }
+
+        throw lastError ?? new Error('sellToken failed after slippage retries');
     }
 
 

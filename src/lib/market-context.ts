@@ -92,12 +92,6 @@ export interface MarketContext {
     walletBalance: number;
     totalUnrealizedPnl: number;
     dailyPnL: number;
-    /** Absolute daily profit target in USD (initialCapital * dailyProfitTarget fraction). */
-    dailyProfitTargetUsd: number;
-    /** Daily profit target as fraction of initial capital (e.g. 0.05 = 5%). */
-    dailyProfitTargetPct: number;
-    /** Progress toward daily profit target: dailyPnL / dailyProfitTargetUsd * 100. */
-    dailyTargetProgressPct: number;
     /** Max allowed daily loss in USD (initialCapital * maxDailyDrawdown). */
     maxDailyDrawdownLimitUsd: number;
     /** Max daily drawdown as fraction of capital (e.g. 0.05 = 5%). */
@@ -106,8 +100,6 @@ export interface MarketContext {
     hoursRemainingInDay: number;
     /** Drawdown from today's peak equity as fraction of peak (0 = at peak). */
     currentDrawdownFromPeak: number;
-    /** Whether the bot is paused from opening new entries (target met / defense). */
-    pauseNewEntries: boolean;
     /**
      * Latest ensemble prediction for the active pair — injected when the bot
      * is in 'ensemble' mode and open positions exist. Allows the LLM to
@@ -171,8 +163,6 @@ export interface QuantOperatorDecision {
     trailingTpAggressiveness?: number;
     // Emergency risk-off: when true the bot closes ALL open positions immediately.
     forceExit?: boolean;
-    /** When daily target is met: PAUSE_NEW_ENTRIES stops new trades; NORMAL = no change. */
-    targetMetAction?: 'NORMAL' | 'PAUSE_NEW_ENTRIES';
     positionAdjustments?: PositionAdjustment[];
 }
 
@@ -250,7 +240,6 @@ Respond ONLY with a strict JSON object:
   "tpExtensionMultiplier": number (0.7 to 2.0; >1.0 = wider TP),
   "trailingTpAggressiveness": number (0.5 to 2.0; >1.0 = trail tighter),
   "forceExit": boolean (true only for emergency sell-all),
-  "targetMetAction": "NORMAL"|"PAUSE_NEW_ENTRIES",
   "confidence": number (0-100),
   "reasoning": string (1-2 sentences in Vietnamese),
   "positionAdjustments": [{"symbol":string,"action":"HOLD"|"EXIT"|"TIGHTEN_SL"|"EXTEND_TP"|"MOVE_TO_ENTRY","reason":string,"customSlPrice"?:number,"customTpPrice"?:number}] (optional)
@@ -274,11 +263,8 @@ Signal Quality:
 - Logistic accuracy < 50: Disregard Logistic, weight KNN/MOM instead.
 - Do not tighten SL to < 0.6x original ATR stop distance.
 
-Daily Target Rules:
-- Progress < 80%: tpExtension >= 1.0, risk ~1.0.
-- Progress 80-100%: slTightness < 0.9, trailingTp > 1.2, tpExtension < 1.0.
-- Progress >= 100%: risk <= 0.5, targetMetAction = "PAUSE_NEW_ENTRIES", tighten SL.
-- Near Loss Limit: risk <= 0.3, slTightness <= 0.7.
+Daily Loss Rules:
+- Near max daily loss limit: risk <= 0.3, slTightness <= 0.7, consider EXIT on weak positions.
 
 X Sentiment:
 - Bullish spike (score > 0.5, volume = 'spiking') + LONG signal: risk +0.15 (max 1.0).
@@ -295,8 +281,8 @@ CMC Market Signals:
 - skillHubSummary: Pre-computed daily_market_overview narrative takes precedence over general F&G rules.
 
 Competition Rules (if active):
-- Drawdown approaching 20%: risk = 0.3, slTightness = 0.7, targetMetAction = PAUSE_NEW_ENTRIES.
-- missingTradeDays > 0: Must trade today (do not pause new entries).`;
+- Drawdown approaching 20%: risk = 0.3, slTightness = 0.7.
+- missingTradeDays > 0: Must trade today.`;
 
 export function buildUserPrompt(ctx: MarketContext): string {
     return `Market context (JSON):\n${JSON.stringify(ctx)}\n\nReturn ONLY the JSON decision object.`;

@@ -64,6 +64,9 @@ export async function POST(req: Request) {
             bot.dcaEnabled = data.dcaEnabled;
             if (wasDca !== data.dcaEnabled) {
                 bot.addLog('SYSTEM', `Auto DCA Configuration: ${bot.dcaEnabled ? 'ACTIVE 🛒' : 'OFF 🔴'}`, 'info-line');
+                if (bot.dcaEnabled) {
+                    bot.backfillDcaForOpenPositions();
+                }
             }
         }
 
@@ -111,24 +114,9 @@ export async function POST(req: Request) {
             bot.riskRatio = data.riskRatio / 100; // convert percentage back to ratio
         }
 
-        if (typeof data.dailyProfitTarget === 'number' && data.dailyProfitTarget > 0) {
-            bot.dailyProfitTarget = Math.min(Math.max(data.dailyProfitTarget / 100, 0.01), 0.5);
-            bot.addLog('SYSTEM', `Daily profit target configuration: ${(bot.dailyProfitTarget * 100).toFixed(1)}% (~$${bot.getDailyProfitTargetUsd().toFixed(2)})`, 'info-line');
-        }
-
         if (typeof data.maxDailyDrawdown === 'number' && data.maxDailyDrawdown > 0) {
             bot.maxDailyDrawdown = Math.min(Math.max(data.maxDailyDrawdown / 100, 0.01), 0.5);
             bot.addLog('SYSTEM', `Daily loss limit configuration: ${(bot.maxDailyDrawdown * 100).toFixed(1)}% (~$${bot.getMaxDailyLossLimitUsd().toFixed(2)})`, 'info-line');
-        }
-
-        if (typeof data.stopOnTargetMet === 'boolean') {
-            bot.stopOnTargetMet = data.stopOnTargetMet;
-            bot.addLog('SYSTEM', `Stop trading when daily target met: ${bot.stopOnTargetMet ? 'ON 🎯' : 'OFF'}`, 'info-line');
-        }
-
-        if (typeof data.pauseNewEntries === 'boolean') {
-            bot.pauseNewEntries = data.pauseNewEntries;
-            bot.addLog('SYSTEM', `Pause new entry orders: ${bot.pauseNewEntries ? 'ON ⏸️' : 'OFF ▶️'}`, 'info-line');
         }
 
         if (typeof data.orderSizeMultiplier === 'number' && data.orderSizeMultiplier > 0) {
