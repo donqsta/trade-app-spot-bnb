@@ -7,6 +7,19 @@ import dynamic from 'next/dynamic';
 const TradingChart = dynamic(() => import('@/components/TradingChart').then(mod => mod.TradingChart), { ssr: false });
 const EquityChart = dynamic(() => import('@/components/EquityChart').then(mod => mod.EquityChart), { ssr: false });
 
+const FIFTY_POTENTIAL_TOKENS = [
+    'BNBUSDT', 'CAKEUSDT', 'LINKUSDT', 'AAVEUSDT', 'FLOKIUSDT', 'TWTUSDT', 'ETHUSDT', 'USDCUSDT', 'XRPUSDT', 'TRXUSDT',
+    'DOGEUSDT', 'ADAUSDT', 'BCHUSDT', 'TONUSDT', 'LTCUSDT', 'AVAXUSDT', 'SHIBUSDT', 'DOTUSDT', 'UNIUSDT', 'ATOMUSDT',
+    'FILUSDT', 'INJUSDT', 'FETUSDT', 'ZROUSDT', 'LDOUSDT', 'PENDLEUSDT', 'STGUSDT', 'AXSUSDT', 'RAYUSDT', 'COMPUSDT',
+    'BATUSDT', 'APEUSDT', 'SFPUSDT', '1INCHUSDT', 'SNXUSDT', 'CHEEMSUSDT', 'LUNCUSDT', 'BONKUSDT', 'ZECUSDT', 'SUSHIUSDT',
+    'DEXEUSDT', 'BEAMUSDT', 'YFIUSDT', 'ZILUSDT', 'BTTUSDT', 'NFTUSDT', 'EURIUSDT', 'ACHUSDT', 'AXLUSDT', 'KAVAUSDT'
+];
+
+const SELECTABLE_TOKENS = Array.from(new Set([
+    'BTCUSDT', 'ETHUSDT', 'SOLUSDT', ...FIFTY_POTENTIAL_TOKENS
+]));
+
+
 // Local type to avoid SSR import issues with lightweight-charts
 interface ChartMarker {
     time: number;
@@ -84,6 +97,8 @@ export default function Home() {
     const [pair, setPair] = useState('BTCUSDT');
     const [activePairs, setActivePairs] = useState<string[]>(['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT']);
     const [timeframe, setTimeframe] = useState('15m');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [pairFilterQuery, setPairFilterQuery] = useState('');
     const [livePrice, setLivePrice] = useState(0);
     const [prevPrice, setPrevPrice] = useState(0);
     const [priceChange24h, setPriceChange24h] = useState(0);
@@ -241,8 +256,8 @@ export default function Home() {
 
         fetchStatus();
 
-        // 1-second polling loop to keep client PnL, logs and stats 100% in-sync with server bot engine!
-        const interval = setInterval(fetchStatus, 1000);
+        // 3-second polling loop to keep client PnL, logs and stats in-sync with server bot engine!
+        const interval = setInterval(fetchStatus, 3000);
         return () => clearInterval(interval);
     }, []);
 
@@ -538,6 +553,37 @@ export default function Home() {
             console.error('Error updating configuration:', e);
         }
     };
+
+    const handleToggleActivePair = async (symbol: string) => {
+        let newActivePairs = [...activePairs];
+        if (newActivePairs.includes(symbol)) {
+            if (newActivePairs.length <= 1) {
+                alert("You must keep at least 1 active pair!");
+                return;
+            }
+            newActivePairs = newActivePairs.filter(p => p !== symbol);
+        } else {
+            newActivePairs.push(symbol);
+        }
+
+        // Optimistically update frontend state
+        setActivePairs(newActivePairs);
+
+        try {
+            const res = await fetch('/api/bot/status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ activePairs: newActivePairs })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                syncServerState(data.state);
+            }
+        } catch (e) {
+            console.error('Error toggling active pair:', e);
+        }
+    };
+
 
     const handleModelTypeChange = async (type: string) => {
         setModelType(type);
@@ -879,77 +925,27 @@ export default function Home() {
                     <img src="/logo.png" alt="Orocle Logo" className="h-14 w-auto object-contain" />
                 </div>
 
-                {/* Glowing Multi-Ticker Pricing Bar */}
-                <div className="flex items-center gap-4 ml-6 mr-auto">
-                    {activePairs.map((symbol) => {
-                        const active = pair === symbol;
-                        const price = livePrices[symbol] || 0;
-                        const change = priceChanges24hMap[symbol] || 0;
-                        const hasGrid = gridActiveMap[symbol];
-                        const pairLabel = symbol.replace('USDT', '/USDT');
-                        const priceFractionDigits = getDigits(symbol);
-
-                        return (
-                            <div
-                                key={symbol}
-                                onClick={() => handleSwitchPair(symbol)}
-                                className={`flex flex-col justify-center px-4 py-1.5 rounded-xl border transition-all duration-300 cursor-pointer select-none min-w-[130px] hover:scale-[1.03] active:scale-[0.98] ${active
-                                        ? 'border-[#226af0] bg-[#226af0]/15 shadow-[0_0_15px_rgba(34,106,240,0.2)]'
-                                        : 'border-white/5 bg-[#141822]/60 hover:border-white/15'
-                                    }`}
-                            >
-                                <div className="flex items-center justify-between gap-1">
-                                    <span className="text-[10px] font-black tracking-wider text-slate-400">
-                                        {pairLabel}
-                                    </span>
-                                    {hasGrid && (
-                                        <span className="text-[8px] font-black px-1.5 py-0.2 bg-[#ffb300]/15 text-[#ffb300] border border-[#ffb300]/30 rounded shadow-[0_0_5px_rgba(255,179,0,0.15)] animate-pulse">
-                                            GRID
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="flex items-baseline justify-between gap-2 mt-0.5">
-                                    <span className={`text-[12px] font-extrabold font-mono transition-colors duration-200 ${price > 0 ? (active && price > prevPrice ? 'text-[#00c076]' : 'text-slate-100') : 'text-slate-500'
-                                        }`}>
-                                        {price > 0 ? price.toLocaleString(undefined, { minimumFractionDigits: priceFractionDigits, maximumFractionDigits: priceFractionDigits }) : '--.--'}
-                                    </span>
-                                    <span className={`text-[10px] font-bold font-mono ${change >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]'}`}>
-                                        {change >= 0 ? '+' : ''}{change.toFixed(1)}%
-                                    </span>
-                                </div>
-                            </div>
-                        );
-                    })}
-
-                    {/* Timeframe dropdown */}
-                    <div className="flex flex-col ml-2">
-                        <span className="text-[8px] text-slate-500 font-extrabold uppercase tracking-wider mb-0.5">Timeframe</span>
-                        <select
-                            value={timeframe}
-                            onChange={(e) => {
-                                const newTimeframe = e.target.value;
-                                setTimeframe(newTimeframe);
-                                localStorage.setItem('selected_timeframe', newTimeframe);
-                            }}
-                            disabled={quantOperatorEnabled}
-                            className={`border text-[11px] font-bold px-2 py-1 rounded-lg outline-none cursor-pointer transition-all duration-200 ${quantOperatorEnabled
-                                    ? 'bg-[#141822]/40 border-[#706fd3]/25 text-[#a29bfe] cursor-not-allowed opacity-75'
-                                    : 'bg-[#141822] border-white/5 text-slate-300 focus:border-[#226af0]'
-                                }`}
-                            title={quantOperatorEnabled ? "Automatically adjusted by the LLM Quant Operator" : ""}
-                        >
-                            <option value="1m">1 Min</option>
-                            <option value="5m">5 Min</option>
-                            <option value="15m">15 Min</option>
-                            <option value="1h">1 Hour</option>
-                            <option value="4h">4 Hour</option>
-                        </select>
+                {/* Selected Token Stats Summary */}
+                <div className="flex items-center gap-6 ml-6 mr-auto border-l border-white/5 pl-6">
+                    <div className="flex flex-col">
+                        <span className="text-[9px] text-slate-500 font-extrabold uppercase tracking-wider">Trading Asset</span>
+                        <span className="text-[13px] font-black text-slate-100">{pair.replace('USDT', '')}/USDT</span>
                     </div>
-
-                    {/* Volume Ticker for current active pair */}
-                    <div className="flex flex-col ml-4">
-                        <span className="text-[8px] text-slate-500 font-extrabold uppercase tracking-wider mb-0.5">Volume 24h ({pair.replace('USDT', '')})</span>
-                        <span className="text-[12px] text-slate-200 font-extrabold font-mono leading-none py-1">
+                    <div className="flex flex-col">
+                        <span className="text-[9px] text-slate-500 font-extrabold uppercase tracking-wider">Live Price</span>
+                        <span className={`text-[13px] font-mono font-black ${livePrice >= prevPrice ? 'text-[#00c076]' : 'text-[#ff3b30]'}`}>
+                            {livePrice > 0 ? livePrice.toLocaleString(undefined, { minimumFractionDigits: getDigits(pair), maximumFractionDigits: getDigits(pair) }) : '--.--'}
+                        </span>
+                    </div>
+                    <div className="flex flex-col">
+                        <span className="text-[9px] text-slate-500 font-extrabold uppercase tracking-wider">24h Change</span>
+                        <span className={`text-[13px] font-mono font-black ${priceChange24h >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]'}`}>
+                            {priceChange24h >= 0 ? '+' : ''}{priceChange24h.toFixed(2)}%
+                        </span>
+                    </div>
+                    <div className="flex flex-col">
+                        <span className="text-[9px] text-slate-500 font-extrabold uppercase tracking-wider">24h Volume</span>
+                        <span className="text-[13px] font-mono font-black text-slate-200">
                             {volume24h > 0 ? volume24h.toLocaleString() : '--.--'}
                         </span>
                     </div>
@@ -980,6 +976,111 @@ export default function Home() {
                     </div>
                 </div>
             </header>
+
+            {/* MAIN CONTENT WRAPPER */}
+            <div className="flex flex-1 min-h-0 overflow-hidden">
+                {/* LEFT SIDEBAR: Asset list & TF */}
+                <aside className="w-72 bg-[#11141c]/45 backdrop-blur-md border-r border-white/5 flex flex-col min-h-0 select-none shadow-xl">
+                    <div className="p-4 border-b border-white/5 flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-black uppercase tracking-wider text-slate-400">Assets ({activePairs.length})</span>
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] text-slate-500 font-extrabold uppercase">TF</span>
+                                <select
+                                    value={timeframe}
+                                    onChange={(e) => {
+                                        const newTimeframe = e.target.value;
+                                        setTimeframe(newTimeframe);
+                                        localStorage.setItem('selected_timeframe', newTimeframe);
+                                    }}
+                                    disabled={quantOperatorEnabled}
+                                    className={`border text-[10px] font-black px-1.5 py-0.5 rounded outline-none cursor-pointer transition-all ${
+                                        quantOperatorEnabled
+                                            ? 'bg-white/5 border-white/5 text-slate-500 cursor-not-allowed opacity-75'
+                                            : 'bg-[#181d28] border-white/10 text-slate-300 focus:border-[#226af0]'
+                                    }`}
+                                    title={quantOperatorEnabled ? "Automatically adjusted by the LLM Quant Operator" : ""}
+                                >
+                                    <option value="1m">1m</option>
+                                    <option value="5m">5m</option>
+                                    <option value="15m">15m</option>
+                                    <option value="1h">1h</option>
+                                    <option value="4h">4h</option>
+                                </select>
+                            </div>
+                        </div>
+                        <input
+                            type="text"
+                            placeholder="Search asset..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full bg-[#181d28]/70 border border-white/5 px-3 py-1.5 rounded-lg text-xs outline-none text-slate-200 placeholder-slate-500 focus:border-[#226af0] focus:bg-[#181d28] transition-all font-semibold"
+                        />
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto px-2 py-2 flex flex-col gap-1 custom-scrollbar">
+                        {activePairs
+                            .filter(p => p.toLowerCase().includes(searchQuery.toLowerCase()))
+                            .map((symbol) => {
+                                const active = pair === symbol;
+                                const price = livePrices[symbol] || 0;
+                                const change = priceChanges24hMap[symbol] || 0;
+                                const hasGrid = gridActiveMap[symbol];
+                                const activePos = openPositions.find(p => p.symbol === symbol);
+                                const priceFractionDigits = getDigits(symbol);
+
+                                return (
+                                    <div
+                                        key={symbol}
+                                        onClick={() => handleSwitchPair(symbol)}
+                                        className={`flex items-center justify-between px-3 py-2.5 rounded-xl border transition-all duration-200 cursor-pointer ${
+                                            active
+                                                ? 'border-[#226af0] bg-[#226af0]/15 shadow-[0_0_12px_rgba(34,106,240,0.15)]'
+                                                : 'border-transparent bg-transparent hover:bg-white/3 hover:border-white/5'
+                                        }`}
+                                    >
+                                        <div className="flex flex-col gap-0.5">
+                                            <div className="flex items-center gap-1.5">
+                                                <span className={`text-[12px] font-black tracking-wide ${active ? 'text-slate-100' : 'text-slate-300'}`}>
+                                                    {symbol.replace('USDT', '')}
+                                                </span>
+                                                <span className="text-[9px] text-slate-500 font-bold">/USDT</span>
+                                                {hasGrid && (
+                                                    <span className="text-[8px] font-black px-1.5 py-0.2 bg-[#ffb300]/15 text-[#ffb300] border border-[#ffb300]/30 rounded shadow-[0_0_5px_rgba(255,179,0,0.15)] animate-pulse">
+                                                        GRID
+                                                    </span>
+                                                )}
+                                                {activePos && (
+                                                    <span className="text-[8px] font-black px-1.5 py-0.2 bg-[#00c076]/15 text-[#00c076] border border-[#00c076]/30 rounded">
+                                                        LONG
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {activePos && (
+                                                <span className={`text-[9px] font-black ${activePos.pnl >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]'}`}>
+                                                    PnL: {activePos.pnl >= 0 ? '+' : ''}{activePos.pnlPercent.toFixed(1)}% (${activePos.pnl.toFixed(2)})
+                                                </span>
+                                            )}
+                                        </div>
+                                        
+                                        <div className="flex flex-col items-end gap-0.5">
+                                            <span className={`text-[12px] font-black font-mono transition-colors duration-200 ${
+                                                price > 0 ? (active && price > prevPrice ? 'text-[#00c076]' : 'text-slate-200') : 'text-slate-500'
+                                            }`}>
+                                                {price > 0 ? price.toLocaleString(undefined, { minimumFractionDigits: priceFractionDigits, maximumFractionDigits: priceFractionDigits }) : '--.--'}
+                                            </span>
+                                            <span className={`text-[9px] font-black font-mono ${change >= 0 ? 'text-[#00c076]' : 'text-[#ff3b30]'}`}>
+                                                {change >= 0 ? '+' : ''}{change.toFixed(1)}%
+                                            </span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                    </div>
+                </aside>
+
+                {/* RIGHT AREA: Dashboard Grid + Position Footer */}
+                <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#0a0c10]/40">
 
             {/* DASHBOARD GRID */}
             <main className="flex-1 grid grid-cols-[1.6fr_0.9fr_1.1fr] gap-3 p-3 min-h-0">
@@ -1248,6 +1349,46 @@ export default function Home() {
                                     </div>
                                 )}
 
+                                {/* Active Trading Pairs Selection Grid */}
+                                <div className="flex flex-col gap-2.5 bg-white/2 border border-white/5 rounded-lg p-2.5 mt-1">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Active Trading Pairs</label>
+                                        <span className="text-[9px] text-[#226af0] font-black">{activePairs.length} Selected</span>
+                                    </div>
+                                    <input
+                                        type="text"
+                                        placeholder="Search active pair config..."
+                                        value={pairFilterQuery}
+                                        onChange={(e) => setPairFilterQuery(e.target.value)}
+                                        className="w-full bg-[#181d28]/70 border border-white/5 px-2 py-1 rounded text-[10px] outline-none text-slate-200 placeholder-slate-500 focus:border-[#226af0] focus:bg-[#181d28] transition-all font-semibold"
+                                    />
+                                    <div className="max-h-40 overflow-y-auto pr-1 border border-white/5 rounded bg-slate-950/40 p-1.5 custom-scrollbar">
+                                        <div className="grid grid-cols-4 gap-1">
+                                            {SELECTABLE_TOKENS
+                                                .filter(token => token.toLowerCase().includes(pairFilterQuery.toLowerCase()))
+                                                .map((token) => {
+                                                    const isActive = activePairs.includes(token);
+                                                    const displaySym = token.replace('USDT', '');
+                                                    return (
+                                                        <button
+                                                            key={token}
+                                                            type="button"
+                                                            onClick={() => handleToggleActivePair(token)}
+                                                            className={`text-[9px] font-bold py-1 px-0.5 border rounded text-center transition-all cursor-pointer ${
+                                                                isActive
+                                                                    ? 'border-[#226af0] text-[#226af0] bg-[#226af0]/10 shadow-[0_0_8px_rgba(34,106,240,0.1)]'
+                                                                    : 'border-white/5 bg-slate-900/40 text-slate-500 hover:text-slate-300 hover:border-white/10'
+                                                            }`}
+                                                        >
+                                                            {displaySym}
+                                                        </button>
+                                                    );
+                                                })}
+                                        </div>
+                                    </div>
+                                </div>
+
+
                                 {/* ===== LLM BRAIN CONFIG (Phase 1) ===== */}
                                 <div className="flex flex-col gap-2 mt-2 border-t border-white/5 pt-2">
                                     <span className="text-[9px] font-black text-[#a29bfe] uppercase tracking-wider">LLM AI Brain</span>
@@ -1349,7 +1490,6 @@ export default function Home() {
                                         <option value="logistic">Logistic Regression</option>
                                         <option value="momentum">Advanced Momentum Quant</option>
                                         <option value="ensemble"> Ensemble (3-model weighted vote)</option>
-                                        <option value="onnx">ONNX (XGBoost/LightGBM)</option>
                                     </select>
                                 </div>
 
@@ -2355,5 +2495,7 @@ export default function Home() {
                 </div>
             </footer>
         </div>
+    </div>
+</div>
     );
 }

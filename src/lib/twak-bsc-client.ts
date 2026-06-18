@@ -38,7 +38,7 @@ const PAIR_TO_BSC_TOKEN: Record<string, string> = {
     // UNI — BEP-20 on BSC
     UNIUSDT:   '0xBf5140A22578168FD56BCbCCEE7088B935634125',
     // INJ — BEP-20 on BSC
-    INJEDT:    '0xa2B726B1145A4773F68593CF171187d8EBe4d495',
+    INJUSDT:    '0xa2B726B1145A4773F68593CF171187d8EBe4d495',
     // FET — BEP-20 on BSC
     FETUSDT:   '0x031b41e504677879370e9DBcF937283A8691Fa7f',
     // PENDLE — BEP-20 on BSC
@@ -257,10 +257,47 @@ export class TWAKBscClient {
         return portfolio.reduce((sum, a) => sum + (a.usdValue || 0), 0);
     }
 
-    async getTokenBalance(symbol: string): Promise<{ balance: number; usdValue: number }> {
-        const portfolio = await this.getPortfolio();
-        const asset = portfolio.find(a => a.symbol?.toUpperCase() === symbol.toUpperCase());
-        return { balance: asset?.balance ?? 0, usdValue: asset?.usdValue ?? 0 };
+    async getTokenBalance(symbol: string, skipPortfolio = false): Promise<{ balance: number; usdValue: number }> {
+        if (!skipPortfolio) {
+            try {
+                const portfolio = await this.getPortfolio();
+                const asset = portfolio.find(a => a.symbol?.toUpperCase() === symbol.toUpperCase());
+                if (asset) {
+                    return { balance: asset.balance, usdValue: asset.usdValue };
+                }
+            } catch { /* fallback to direct balance command */ }
+        }
+
+        try {
+            const walletAddr = await this.getWalletAddress();
+            if (!walletAddr) return { balance: 0, usdValue: 0 };
+
+            let tokenAddress = symbol;
+            if (!symbol.startsWith('0x')) {
+                const pair = symbol.toUpperCase().endsWith('USDT') ? symbol.toUpperCase() : `${symbol.toUpperCase()}USDT`;
+                tokenAddress = pairToBscToken(pair);
+            }
+
+            if (tokenAddress.toUpperCase() === 'BNB') {
+                const result = await this.run(['balance', '--address', walletAddr, '--chain', this.chain, '--coin', '714']);
+                const balance = parseFloat(result?.available ?? result?.total ?? '0');
+                const usdValue = parseFloat(result?.totalUsd ?? '0');
+                return { balance, usdValue };
+            } else {
+                const result = await this.run([
+                    'balance',
+                    '--address', walletAddr,
+                    '--chain', this.chain,
+                    '--token', tokenAddress
+                ]);
+                const balance = parseFloat(result?.available ?? result?.total ?? '0');
+                const usdValue = parseFloat(result?.totalUsd ?? '0');
+                return { balance, usdValue };
+            }
+        } catch (e) {
+            console.error(`[TWAK] Failed to query balance for ${symbol}:`, e);
+            return { balance: 0, usdValue: 0 };
+        }
     }
 
     async getWalletAddress(): Promise<string> {
@@ -286,7 +323,7 @@ export class TWAKBscClient {
         amountUsdt: number,
         toSymbol: string,
     ): Promise<{ toAmount: number; price: number }> {
-        const formattedAmount = Number(amountUsdt.toFixed(1)).toString();
+        const formattedAmount = Number(amountUsdt.toFixed(6)).toString();
         const result = await this.run([
             'swap', formattedAmount, 'USDT', toSymbol,
             '--chain', this.chain,
@@ -303,7 +340,7 @@ export class TWAKBscClient {
         toSymbol: string,
         slippagePct = 1,
     ): Promise<SwapResult> {
-        const formattedAmount = Number(amountUsdt.toFixed(1)).toString();
+        const formattedAmount = Number(amountUsdt.toFixed(6)).toString();
         const result = await this.run([
             'swap', formattedAmount, 'USDT', toSymbol,
             '--chain', this.chain,
@@ -326,7 +363,12 @@ export class TWAKBscClient {
         fromSymbol: string,
         slippagePct = 1,
     ): Promise<SwapResult> {
-        const formattedAmount = Number(tokenAmount.toFixed(1)).toString();
+        // Use 8 decimal places for token amounts (e.g. BNB = 0.008486) to avoid
+        // rounding tiny amounts to 0, which causes TWAK CLI "Amount must be greater than 0".
+        const formattedAmount = Number(tokenAmount.toFixed(8)).toString();
+        if (Number(formattedAmount) <= 0) {
+            throw new Error(`sellToken: tokenAmount ${tokenAmount} rounds to zero — aborting swap to prevent TWAK VALIDATION_ERROR`);
+        }
         const result = await this.run([
             'swap', formattedAmount, fromSymbol, 'USDT',
             '--chain', this.chain,
@@ -416,7 +458,105 @@ export class TWAKBscClient {
             '--chain', this.chain,
             '--limit', String(limit),
         ]);
-        return result?.transactions ?? result?.items ?? [];
+        return Array.isArray(result) ? result : (result?.transactions ?? result?.items ?? []);
+    }
+
+    private assetInfoCache: Record<string, { decimals: number; symbol: string; name: string }> = {
+        'c20000714': { decimals: 18, symbol: 'BNB', name: 'BNB Smart Chain' },
+        'c20000714_t0x55d398326f99059ff775485246999027b3197955': { decimals: 18, symbol: 'USDT', name: 'Tether USD' }
+    };
+
+    async getAssetInfo(assetId: string): Promise<{ decimals: number; symbol: string; name: string }> {
+        const normalizedId = assetId.toLowerCase();
+        if (this.assetInfoCache[normalizedId]) {
+            return this.assetInfoCache[normalizedId];
+        }
+
+        try {
+            const result = await this.run(['asset', assetId]);
+            const info = {
+                decimals: parseInt(result?.decimals ?? '18'),
+                symbol: result?.symbol ?? '',
+                name: result?.name ?? '',
+            };
+            this.assetInfoCache[normalizedId] = info;
+            return info;
+        } catch (e) {
+            console.error(`[TWAK] Failed to fetch asset info for ${assetId}:`, e);
+            return { decimals: 18, symbol: '', name: '' };
+        }
+    }
+
+    async getTokenEntryFromHistory(tokenSymbolOrAddress: string): Promise<{ entryPrice: number; entryTime: number } | null> {
+        let targetAssetId = '';
+        const upperSym = tokenSymbolOrAddress.toUpperCase();
+        if (upperSym === 'BNB' || upperSym === 'BNBUSDT') {
+            targetAssetId = 'c20000714';
+        } else {
+            let contractAddress = '';
+            if (tokenSymbolOrAddress.startsWith('0x')) {
+                contractAddress = tokenSymbolOrAddress;
+            } else {
+                const pair = upperSym.endsWith('USDT') ? upperSym : `${upperSym}USDT`;
+                contractAddress = pairToBscToken(pair);
+            }
+
+            if (!contractAddress || contractAddress.toUpperCase() === 'BNB') {
+                targetAssetId = 'c20000714';
+            } else {
+                targetAssetId = `c20000714_t${contractAddress.toLowerCase()}`;
+            }
+        }
+
+        const txs = await this.getTxHistory(100);
+        if (!txs || txs.length === 0) return null;
+
+        const walletAddress = await this.getWalletAddress();
+        if (!walletAddress) return null;
+
+        for (const tx of txs) {
+            if (tx.status !== 'completed') continue;
+            const events = tx.events || [];
+
+            const inTransfer = events.find((e: any) => {
+                return e.type === 'transfer' &&
+                       e.data?.to?.toLowerCase() === walletAddress.toLowerCase() &&
+                       e.data?.asset?.toLowerCase() === targetAssetId.toLowerCase();
+            });
+
+            if (inTransfer) {
+                const usdtAssetId = 'c20000714_t0x55d398326f99059ff775485246999027b3197955';
+                const outUsdt = events.find((e: any) => {
+                    return e.type === 'transfer' &&
+                           e.data?.from?.toLowerCase() === walletAddress.toLowerCase() &&
+                           e.data?.asset?.toLowerCase() === usdtAssetId;
+                });
+
+                const entryTime = new Date(tx.created_at || tx.block_created_at || Date.now()).getTime();
+
+                if (outUsdt) {
+                    try {
+                        const usdtDecimals = 18;
+                        const tokenInfo = await this.getAssetInfo(targetAssetId);
+                        const tokenDecimals = tokenInfo.decimals;
+
+                        const rawUsdtVal = parseFloat(outUsdt.data?.value || '0');
+                        const rawTokenVal = parseFloat(inTransfer.data?.value || '0');
+
+                        if (rawUsdtVal > 0 && rawTokenVal > 0) {
+                            const usdtFloat = rawUsdtVal / Math.pow(10, usdtDecimals);
+                            const tokenFloat = rawTokenVal / Math.pow(10, tokenDecimals);
+                            const entryPrice = usdtFloat / tokenFloat;
+                            return { entryPrice, entryTime };
+                        }
+                    } catch (e) {
+                        console.error('[TWAK] Error parsing swap details:', e);
+                    }
+                }
+                return { entryPrice: 0, entryTime };
+            }
+        }
+        return null;
     }
 
     // ─── Competition registration ─────────────────────────────────────────────

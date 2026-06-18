@@ -75,6 +75,15 @@ export async function POST(req: Request) {
             bot.dcaPriceDropPct = data.dcaPriceDropPct;
         }
 
+        if (Array.isArray(data.activePairs)) {
+            const validPairs = data.activePairs
+                .map((p: any) => String(p).trim().toUpperCase())
+                .filter((p: string) => p.endsWith('USDT'));
+            if (validPairs.length > 0) {
+                await bot.updateActivePairs(validPairs);
+            }
+        }
+
         if (Array.isArray(data.dcaCapitalAllocation)) {
             const sum = data.dcaCapitalAllocation.reduce((a: number, b: number) => a + b, 0);
             if (Math.abs(sum - 1.0) < 0.01) {
@@ -87,12 +96,9 @@ export async function POST(req: Request) {
         }
 
         if (typeof data.modelType === 'string') {
-            const allowed = ['knn', 'logistic', 'momentum', 'ensemble', 'onnx'];
+            const allowed = ['knn', 'logistic', 'momentum', 'ensemble'];
             if (allowed.includes(data.modelType)) {
                 bot.modelType = data.modelType as any;
-                if (data.modelType === 'onnx') {
-                    bot.activePairs.forEach(p => { bot.aiBrainTrainedMap[p] = true; });
-                }
                 bot.addLog('SYSTEM', `AI algorithm configuration: ${data.modelType.toUpperCase()}`, 'info-line');
             }
         }

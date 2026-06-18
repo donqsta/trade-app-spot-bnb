@@ -290,11 +290,13 @@ export async function getGlobalMetrics(): Promise<GlobalMetrics> {
  * Quotes for a list of symbols (e.g. ['BNB', 'CAKE', 'LINK']).
  * Cached 3 min per symbol batch.
  */
-export async function getTokenQuotes(symbols: string[]): Promise<CryptoQuote[]> {
+export async function getTokenQuotes(symbols: string[], bypassCache = false): Promise<CryptoQuote[]> {
     const key = `quotes_${symbols.sort().join(',')}`;
     const TTL = 3 * 60_000;
-    const cached = getCache<CryptoQuote[]>(key, TTL);
-    if (cached) return cached;
+    if (!bypassCache) {
+        const cached = getCache<CryptoQuote[]>(key, TTL);
+        if (cached) return cached;
+    }
 
     const data = await cmcGet('/v2/cryptocurrency/quotes/latest', {
         symbol: symbols.join(','),
@@ -307,7 +309,7 @@ export async function getTokenQuotes(symbols: string[]): Promise<CryptoQuote[]> 
         if (!entries || !Array.isArray(entries) || entries.length === 0) continue;
         const entry = entries[0] as Record<string, unknown>;
         const q = (entry.quote as Record<string, unknown>)?.USD as Record<string, unknown> ?? {};
-        results.push({
+        const quoteObj: CryptoQuote = {
             symbol: sym,
             name: String(entry.name ?? sym),
             price: Number(q.price ?? 0),
@@ -317,7 +319,10 @@ export async function getTokenQuotes(symbols: string[]): Promise<CryptoQuote[]> 
             marketCap: Number(q.market_cap ?? 0),
             volume24h: Number(q.volume_24h ?? 0),
             lastUpdated: String(q.last_updated ?? new Date().toISOString()),
-        });
+        };
+        results.push(quoteObj);
+        // Also cache individually for faster single-asset lookups (e.g. from loadPairDataCMC)
+        setCache(`quotes_${sym.toUpperCase()}`, [quoteObj]);
     }
 
     setCache(key, results);

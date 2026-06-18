@@ -62,8 +62,7 @@ export interface PersistedBotState {
     dcaPriceDropPct?: number;
     dcaCapitalAllocation?: number[];
     quantOperatorEnabled: boolean;
-    modelType: 'knn' | 'logistic' | 'momentum' | 'onnx';
-    onnxKind: 'xgboost' | 'lightgbm';
+    modelType: 'knn' | 'logistic' | 'momentum' | 'ensemble';
     currentTimeframe: string;
     liveTradingMode: 'simulated' | 'testnet' | 'mainnet' | 'bsc_twak';
 
@@ -103,6 +102,8 @@ export interface PersistedBotState {
 
     binanceApiKey?: string;
     binanceApiSecret?: string;
+    tokenEntryPrices?: { [symbol: string]: { entryPrice: number; openTime: number } };
+    activePairs?: string[];
 }
 
 /** Cap an array to its last N elements (mutates returns a fresh array). */
@@ -135,7 +136,6 @@ export function buildSnapshot(engine: any): PersistedBotState {
         dcaCapitalAllocation: engine.dcaCapitalAllocation,
         quantOperatorEnabled: !!engine.quantOperatorEnabled,
         modelType: engine.modelType,
-        onnxKind: engine.onnxKind,
         currentTimeframe: engine.currentTimeframe,
         liveTradingMode: engine.liveTradingMode,
 
@@ -167,7 +167,9 @@ export function buildSnapshot(engine: any): PersistedBotState {
         llmModel: engine.llmModel || '',
         llmApiKey: engine.llmApiKey || '',
         llmRiskMultiplier: typeof engine.llmRiskMultiplier === 'number' ? engine.llmRiskMultiplier : 1.0,
-        llmLastDecision: engine.llmLastDecision || null
+        llmLastDecision: engine.llmLastDecision || null,
+        tokenEntryPrices: engine.tokenEntryPrices || {},
+        activePairs: engine.activePairs || []
     };
 }
 
@@ -193,7 +195,6 @@ export function applySnapshot(engine: any, snap: PersistedBotState): void {
     engine.dcaCapitalAllocation = snap.dcaCapitalAllocation ?? engine.dcaCapitalAllocation;
     engine.quantOperatorEnabled = !!snap.quantOperatorEnabled;
     if (snap.modelType) engine.modelType = snap.modelType;
-    if (snap.onnxKind) engine.onnxKind = snap.onnxKind;
     if (snap.currentTimeframe) engine.currentTimeframe = snap.currentTimeframe;
     if (snap.liveTradingMode) {
         if (snap.liveTradingMode === 'testnet' || snap.liveTradingMode === 'mainnet') {
@@ -235,8 +236,10 @@ export function applySnapshot(engine: any, snap: PersistedBotState): void {
     if (!engine.llmApiKey && snap.llmApiKey) engine.llmApiKey = snap.llmApiKey;
     engine.llmRiskMultiplier = typeof snap.llmRiskMultiplier === 'number' ? snap.llmRiskMultiplier : 1.0;
     engine.llmLastDecision = snap.llmLastDecision || null;
-
-
+    engine.tokenEntryPrices = snap.tokenEntryPrices || {};
+    if (Array.isArray(snap.activePairs) && snap.activePairs.length > 0) {
+        engine.activePairs = snap.activePairs;
+    }
 }
 
 export function loadSnapshot(): PersistedBotState | null {

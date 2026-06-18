@@ -20,11 +20,10 @@
  */
 
 import { getTokenQuotes, type CryptoQuote } from './cmc-agent-hub';
-import { pairToBscToken } from './twak-bsc-client';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const CMC_POLL_MS     = 30_000;           // quote poll interval
+const CMC_POLL_MS     = process.env.CMC_POLL_MS ? parseInt(process.env.CMC_POLL_MS, 10) : 30_000;           // quote poll interval
 const EVAL_INTERVAL_MS = 5 * 60_000;     // how often to trigger signal eval
 const HISTORY_LIMIT   = 500;             // synthetic candle history length
 
@@ -124,12 +123,12 @@ export class CmcPriceFeed {
 
     private async poll() {
         // Convert internal pair symbols (e.g. BNBUSDT) → CMC symbols (e.g. BNB)
-        const cmcSymbols = [...new Set(this.pairs.map(p => pairToBscToken(p)))];
+        const cmcSymbols = [...new Set(this.pairs.map(p => p.endsWith('USDT') ? p.slice(0, -4) : p))];
         if (cmcSymbols.length === 0) return;
 
         let quotes: CryptoQuote[] = [];
         try {
-            quotes = await getTokenQuotes(cmcSymbols);
+            quotes = await getTokenQuotes(cmcSymbols, true);
         } catch (e) {
             console.error('[CmcFeed] poll error:', e);
             return;
@@ -138,7 +137,7 @@ export class CmcPriceFeed {
         const now = Math.floor(Date.now() / 1000);
 
         for (const pair of this.pairs) {
-            const cmcSym = pairToBscToken(pair);
+            const cmcSym = pair.endsWith('USDT') ? pair.slice(0, -4) : pair;
             const q = quotes.find(r => r.symbol.toUpperCase() === cmcSym.toUpperCase());
             if (!q) continue;
 

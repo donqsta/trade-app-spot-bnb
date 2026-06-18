@@ -4,9 +4,6 @@
  * and handles background trading decisions 24/7 in Node.js memory.
  */
 
-import { spawn } from 'child_process';
-import fs from 'fs';
-import path from 'path';
 import { AIEngine, LabeledDataPoint, LogisticRegressionModel } from './ai-engine';
 import { TWAKBscClient, pairToBscToken } from './twak-bsc-client';
 import { getCMCMarketSnapshot, getTokenQuotes } from './cmc-agent-hub';
@@ -19,6 +16,7 @@ import {
     recordTrade,
     updatePortfolioPeak,
     isEligiblePair,
+    ELIGIBLE_BSC_TOKENS,
 } from './competition-guard';
 import { getXSentiment, refreshSentimentBatch } from './grok-sentiment';
 import { callLLM, isLLMConfigured, readLLMConfig, type LLMProvider } from './llm-client';
@@ -33,7 +31,7 @@ import {
     type MarketContext,
     type QuantOperatorDecision
 } from './market-context';
-import { hasOnnxModel, predictONNX, onnxModelAgeHours } from './onnx-runner';
+
 import { applySnapshot, buildSnapshot, getPersistenceInfo, loadSnapshot, saveSnapshot } from './state-persistence';
 
 export interface Position {
@@ -60,7 +58,7 @@ export interface Position {
     isClosing?: boolean;
     // T3.3 — which model produced the signal that opened this position.
     // Used by the alpha-decay monitor to attribute realized PnL per model.
-    modelType?: 'knn' | 'logistic' | 'momentum' | 'onnx' | 'ensemble';
+    modelType?: 'knn' | 'logistic' | 'momentum' | 'ensemble';
     // SMART QUANT trailing tier tracking
     originalSl?: number;        // SL at open — used to compute 50% risk reduction at Tier 0
     trailingTier?: number;      // highest tier activated: 0=none 1=T0(30%) 2=T1(50%) 3=T2(75%) 4=T3(90%) 5=T4(100%)
@@ -138,6 +136,14 @@ export interface OrderLog {
     reason?: string;
 }
 
+export const FIFTY_POTENTIAL_TOKENS = [
+    'BNBUSDT', 'CAKEUSDT', 'LINKUSDT', 'AAVEUSDT', 'FLOKIUSDT', 'TWTUSDT', 'ETHUSDT', 'USDCUSDT', 'XRPUSDT', 'TRXUSDT',
+    'DOGEUSDT', 'ADAUSDT', 'BCHUSDT', 'TONUSDT', 'LTCUSDT', 'AVAXUSDT', 'SHIBUSDT', 'DOTUSDT', 'UNIUSDT', 'ATOMUSDT',
+    'FILUSDT', 'INJUSDT', 'FETUSDT', 'ZROUSDT', 'LDOUSDT', 'PENDLEUSDT', 'STGUSDT', 'AXSUSDT', 'RAYUSDT', 'COMPUSDT',
+    'BATUSDT', 'APEUSDT', 'SFPUSDT', '1INCHUSDT', 'SNXUSDT', 'CHEEMSUSDT', 'LUNCUSDT', 'BONKUSDT', 'ZECUSDT', 'SUSHIUSDT',
+    'DEXEUSDT', 'BEAMUSDT', 'YFIUSDT', 'ZILUSDT', 'BTTUSDT', 'NFTUSDT', 'EURIUSDT', 'ACHUSDT', 'AXLUSDT', 'KAVAUSDT'
+];
+
 class BotEngine {
     private ai = new AIEngine();
 
@@ -154,6 +160,8 @@ class BotEngine {
     public livePrices: { [symbol: string]: number } = {};
     public priceChanges24h: { [symbol: string]: number } = {};
     public volumes24h: { [symbol: string]: number } = {};
+    public tokenEntryPrices: Record<string, { entryPrice: number; openTime: number }> = {};
+    private lastDirectCheckTimeMap: Record<string, number> = {};
 
     // Historical data parsed from Binance per pair
     public historicalCandlesMap: { [symbol: string]: Candle[] } = {};
@@ -161,11 +169,8 @@ class BotEngine {
     // AI brain state maps
     public aiBrainTrainedMap: { [symbol: string]: boolean } = {};
     // T3.6 — 'ensemble' runs all three in-process models in parallel and
-    // votes weighted by each model's recent realized winrate. ONNX is
-    // unchanged and remains a pinned-only option.
-    public modelType: 'knn' | 'logistic' | 'momentum' | 'onnx' | 'ensemble' = 'knn';
-    // Which ONNX kind to look for when modelType === 'onnx'.
-    public onnxKind: 'xgboost' | 'lightgbm' = 'xgboost';
+    // votes weighted by each model's recent realized winrate.
+    public modelType: 'knn' | 'logistic' | 'momentum' | 'ensemble' = 'knn';
     public trainedModelMap: { [symbol: string]: LogisticRegressionModel | null } = {};
     public trainingFeaturesMap: { [symbol: string]: LabeledDataPoint[] } = {};
     // Logistic in-sample accuracy per pair (0.0–1.0). Used by predictEnsemble to
@@ -173,12 +178,6 @@ class BotEngine {
     private logisticAccuracyMap: { [symbol: string]: number } = {};
     // Last ensemble signal per pair — injected into LLM context for smarter SL/TP.
     private lastEnsembleSignalMap: { [symbol: string]: EnsembleSignalContext } = {};
-    // ONNX Python auto-retrain tracking.
-    // Keyed by `${pair}_${timeframe}` so switching TF doesn't pollute the guard.
-    private lastOnnxTrainTimeMap: { [pairTf: string]: number } = {};
-    private onnxTrainingPairs = new Set<string>();
-    /** How often (hours) to retrain the ONNX model. Default 6h. */
-    public onnxRetrainIntervalHours = 6;
 
     // Getters and setters for compatibility
     get historicalCandles(): Candle[] {
@@ -278,8 +277,8 @@ class BotEngine {
     public leverage = 1;
     public riskRatio = 0.30; // 30% of per-pair allocation per entry — leaves room for DCA
     public orderSizeMultiplier = 1.0; // No extra multiplier by default. Adjust via UI if needed.
-    public tpAtrMultiplier = 2.0;
-    public slAtrMultiplier = 1.5;
+    public tpAtrMultiplier = 3.5;
+    public slAtrMultiplier = 2.5;
     public smartOrderAdjustment = true; // Smart Quant dynamic risk and trailing stop
     public riskReduction30ToEntry = false; // Move SL to entry at 30% progress instead of 50% risk
     public initialCapital = 1000.00;
@@ -330,7 +329,7 @@ class BotEngine {
     // expectancy. If a model degrades materially (winrate < 40% AND
     // expectancy < 0 over the last 50 trades), we auto-fallback to momentum.
     public modelRecentTrades: { [model: string]: { pnl: number; pct: number; at: number }[] } = {
-        knn: [], logistic: [], momentum: [], onnx: []
+        knn: [], logistic: [], momentum: []
     };
     private alphaDecayWatchdogActive = false;
     private lastFallbackAt = 0;
@@ -470,9 +469,35 @@ class BotEngine {
             this.addLog('SYSTEM', '🔗 TWAK credentials detected — defaulting to BSC on-chain trading mode (bsc_twak).', 'info-line');
         }
 
-        // Initial pair loads in background for all active pairs
+        // Re-initialize maps for active pairs
+        if (!this.activePairs || this.activePairs.length === 0) {
+            this.activePairs = (process.env.PAIRS || (
+                this.liveTradingMode === 'bsc_twak'
+                    ? 'BNBUSDT,CAKEUSDT,LINKUSDT,AAVEUSDT,FLOKIUSDT'
+                    : 'BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT'
+            )).split(',').map(p => p.trim().toUpperCase());
+        }
         this.activePairs.forEach(pair => {
-            this.loadPairData(pair, this.currentTimeframe);
+            if (this.livePrices[pair] === undefined) this.livePrices[pair] = 0;
+            if (this.priceChanges24h[pair] === undefined) this.priceChanges24h[pair] = 0;
+            if (this.volumes24h[pair] === undefined) this.volumes24h[pair] = 0;
+            if (!this.historicalCandlesMap[pair]) this.historicalCandlesMap[pair] = [];
+            if (this.aiBrainTrainedMap[pair] === undefined) this.aiBrainTrainedMap[pair] = false;
+            if (this.trainedModelMap[pair] === undefined) this.trainedModelMap[pair] = null;
+            if (!this.trainingFeaturesMap[pair]) this.trainingFeaturesMap[pair] = [];
+            if (this.gridActiveMap[pair] === undefined) this.gridActiveMap[pair] = false;
+            if (!this.gridOrdersMap[pair]) this.gridOrdersMap[pair] = [];
+            if (this.gridCenterPrices[pair] === undefined) this.gridCenterPrices[pair] = 0;
+            if (this.gridUpperBoundaries[pair] === undefined) this.gridUpperBoundaries[pair] = 0;
+            if (this.gridLowerBoundaries[pair] === undefined) this.gridLowerBoundaries[pair] = 0;
+            if (this.wsMap[pair] === undefined) this.wsMap[pair] = null;
+            if (this.wsReconnectTimeouts[pair] === undefined) this.wsReconnectTimeouts[pair] = null;
+            if (this.lastCandleTimesEvaluated[pair] === undefined) this.lastCandleTimesEvaluated[pair] = null;
+        });
+
+        // Initial pair loads sequentially in background
+        this.loadAllActivePairsData(this.currentTimeframe).catch(err => {
+            console.error('Error loading initial active pairs data:', err);
         });
         // Initial sentiment fetch
         refreshSentimentBatch(this.activePairs);
@@ -515,7 +540,7 @@ class BotEngine {
         // T3.2: rolling retrain every 1h. KNN/Logistic in-process models
         // benefit hugely from this because they otherwise stick to the
         // dataset captured at first load → alpha decays fast in non-
-        // stationary markets. ONNX and Momentum are stateless so we skip.
+        // stationary markets. Momentum is stateless so we skip.
         setInterval(() => this.rollingRetrainAll(), 60 * 60_000);
 
         // T3.3: alpha-decay watchdog runs every 2 minutes. Cheap check; only
@@ -581,7 +606,7 @@ class BotEngine {
     // T3.3 — Alpha-decay monitor
     // ====================================================================
     /** Record realized PnL of a closed trade attributed to a model. */
-    public recordModelTrade(model: 'knn' | 'logistic' | 'momentum' | 'onnx' | 'ensemble', pnl: number, pct: number): void {
+    public recordModelTrade(model: 'knn' | 'logistic' | 'momentum' | 'ensemble', pnl: number, pct: number): void {
         if (!this.modelRecentTrades[model]) this.modelRecentTrades[model] = [];
         const arr = this.modelRecentTrades[model];
         arr.push({ pnl, pct, at: Date.now() });
@@ -589,7 +614,7 @@ class BotEngine {
     }
 
     /** Compute rolling stats over the last N trades for one model. */
-    public computeModelHealth(model: 'knn' | 'logistic' | 'momentum' | 'onnx' | 'ensemble', windowN = 50) {
+    public computeModelHealth(model: 'knn' | 'logistic' | 'momentum' | 'ensemble', windowN = 50) {
         const arr = (this.modelRecentTrades[model] || []).slice(-windowN);
         const n = arr.length;
         if (n === 0) return { n, winrate: 0, avgPnl: 0, expectancy: 0, profitFactor: 1 };
@@ -641,11 +666,13 @@ class BotEngine {
 
     /**
      * T3.2 — rolling retrain. Called once per hour by the constructor's
-     * setInterval. Handles KNN / Logistic / Ensemble in-process, and also
-     * kicks off the background Python ONNX retrain on its own cadence so the
-     * ensemble 4th vote always has a reasonably fresh model.
+     * setInterval. Handles KNN / Logistic / Ensemble in-process models.
      */
     private rollingRetrainAll(): void {
+        if (this.liveTradingMode === 'bsc_twak') {
+            return;
+        }
+
         // ── In-process models (KNN / Logistic / Ensemble) ──────────────────
         if (this.modelType === 'knn' || this.modelType === 'logistic' || this.modelType === 'ensemble') {
             for (const pair of this.activePairs) {
@@ -662,133 +689,6 @@ class BotEngine {
                 }
             }
         }
-
-        // ── ONNX Python retrain (background, non-blocking) ─────────────────
-        // Runs every `onnxRetrainIntervalHours` regardless of current modelType
-        // so ensemble mode always has a fresh 4th vote without any manual setup.
-        const onnxIntervalMs = this.onnxRetrainIntervalHours * 60 * 60_000;
-        const now = Date.now();
-        const tf = this.currentTimeframe;
-        for (const pair of this.activePairs) {
-            const key = `${pair}_${tf}`;
-            const lastTrain = this.lastOnnxTrainTimeMap[key] ?? 0;
-            if (now - lastTrain >= onnxIntervalMs && !this.onnxTrainingPairs.has(pair)) {
-                this.lastOnnxTrainTimeMap[key] = now;
-                this.trainOnnxAsync(pair, tf);
-            }
-        }
-    }
-
-    /**
-     * Spawn ml/train_one.py in the background to (re)train the ONNX model for
-     * one pair using Python. Fire-and-forget: does not block the trading loop.
-     *
-     * Works natively and identically across Windows, Linux, and macOS without bash.
-     * Automatically handles python/python3 command differences.
-     * If Python is not available, the error is logged as a warning — the bot
-     * continues trading with KNN/Logistic/Momentum and any previously cached
-     * ONNX model.
-     */
-    /**
-     * How many candles to fetch per timeframe so we always cover ~3 months of data.
-     * Shorter candles need more candles to reach the same calendar depth.
-     */
-    private onnxCandleLimitFor(tf: string): number {
-        const limits: Record<string, number> = {
-            '1m': 12_000,  // ~8 days  (Binance caps at ~1000/req but trainer paginates)
-            '3m': 8_000,  // ~17 days
-            '5m': 8_000,  // ~28 days
-            '15m': 5_000,  // ~52 days (~7.5 weeks)
-            '30m': 4_000,  // ~83 days (~12 weeks)
-            '1h': 3_000,  // ~125 days (~4 months)
-            '2h': 2_000,  // ~166 days
-            '4h': 1_500,  // ~250 days
-            '1d': 500,  // ~500 days
-        };
-        return limits[tf] ?? 5_000;
-    }
-
-    public trainOnnxAsync(pair: string, timeframe?: string): void {
-        if (this.onnxTrainingPairs.has(pair)) return; // guard: already training
-
-        const mlDir = path.join(process.cwd(), 'ml');
-        const scriptPath = path.join(mlDir, 'train_one.py');
-
-        if (!fs.existsSync(scriptPath)) {
-            // ml/ not present in this deployment (e.g. standalone without ml/).
-            // Silently skip — ONNX retrain is optional.
-            return;
-        }
-
-        // Use the supplied timeframe, or fall back to the bot's current active timeframe.
-        // This ensures that when the LLM switches to e.g. 1h, the ONNX model is also
-        // trained on 1h candles — not on stale 15m data.
-        const tf = timeframe || this.currentTimeframe;
-        const limit = this.onnxCandleLimitFor(tf);
-
-        this.onnxTrainingPairs.add(pair);
-        this.addLog('AI', `🐍 [ONNX] Starting Python retraining [${pair}] on timeframe ${tf} (${limit} candles) in background...`, 'system-line');
-
-        const outDir = process.env.BOT_MODEL_DIR || path.join(mlDir, 'models');
-
-        // Try 'python' first on Windows, 'python3' on Unix-like systems, but fallback gracefully.
-        const isWindows = process.platform === 'win32';
-        const primaryCmd = isWindows ? 'python' : 'python3';
-        const fallbackCmd = isWindows ? 'python3' : 'python';
-
-        const runTraining = (cmd: string, isFallback: boolean) => {
-            const child = spawn(cmd, [
-                scriptPath,
-                '--pair', pair,
-                '--interval', tf,
-                '--limit', String(limit),
-                '--model', this.onnxKind,
-                '--out-dir', outDir
-            ], {
-                cwd: mlDir,   // run from ml/ so data/ and models/ subdirs are relative to ml/
-                detached: false,
-                stdio: ['ignore', 'pipe', 'pipe'],
-                env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }
-            });
-
-            const NOTABLE = ['Published', 'Walk-forward', 'acc=', 'FAILED', 'Error', 'Saved', '✅', 'Fetched'];
-            child.stdout?.on('data', (buf: Buffer) => {
-                for (const line of buf.toString().split('\n')) {
-                    const t = line.trim();
-                    if (t && NOTABLE.some(kw => t.includes(kw))) {
-                        this.addLog('AI', `[ONNX ${pair}] ${t}`, t.includes('FAILED') || t.includes('Error') ? 'warning-line' : 'system-line');
-                    }
-                }
-            });
-            child.stderr?.on('data', (buf: Buffer) => {
-                // Log ALL stderr lines so we see the full Python traceback when training fails
-                const lines = buf.toString().split('\n').map(l => l.trim()).filter(Boolean);
-                for (const line of lines) {
-                    this.addLog('AI', `⚠️ [ONNX ${pair}] ${line}`, 'warning-line');
-                }
-            });
-            child.on('error', (err: any) => {
-                if (err.code === 'ENOENT' && !isFallback) {
-                    // Try the fallback command
-                    runTraining(fallbackCmd, true);
-                } else {
-                    this.onnxTrainingPairs.delete(pair);
-                    this.addLog('AI', `⚠️ [ONNX] Failed to run Python (${err.message}). ONNX retrain skipped.`, 'warning-line');
-                }
-            });
-            child.on('close', (code: number | null) => {
-                if (code !== null) {
-                    this.onnxTrainingPairs.delete(pair);
-                    if (code === 0) {
-                        this.addLog('AI', `✅ [ONNX] Training [${pair}] complete. New model will be used in the next prediction.`, 'buy-line');
-                    } else {
-                        this.addLog('AI', `⚠️ [ONNX] Training [${pair}] ended with error code ${code}.`, 'warning-line');
-                    }
-                }
-            });
-        };
-
-        runTraining(primaryCmd, false);
     }
 
     /**
@@ -921,6 +821,32 @@ class BotEngine {
     }
 
     /**
+     * Load market data for all active pairs sequentially with a 100ms delay
+     * to prevent hitting API rate limits and spawning parallel requests.
+     */
+    private async loadAllActivePairsData(timeframe: string) {
+        this.addLog('SYSTEM', `[SYSTEM] Start loading data for all ${this.activePairs.length} pairs sequentially...`, 'system-line');
+        
+        if (this.liveTradingMode === 'bsc_twak') {
+            try {
+                const cmcSymbols = [...new Set(this.activePairs.map(p => p.endsWith('USDT') ? p.slice(0, -4) : p))];
+                this.addLog('SYSTEM', `[CMC] Pre-fetching batch quotes for all ${cmcSymbols.length} active symbols...`, 'system-line');
+                // Fetch all quotes in batch and cache them in cmc-agent-hub
+                await getTokenQuotes(cmcSymbols, true);
+            } catch (e: any) {
+                this.addLog('SYSTEM', `[CMC] Failed to pre-fetch quotes: ${e.message}`, 'warning-line');
+            }
+        }
+
+        for (const pair of this.activePairs) {
+            await this.loadPairData(pair, timeframe);
+            // Wait 100ms between pairs to avoid slamming APIs and rate limits
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        this.addLog('SYSTEM', `[SYSTEM] Completed loading data for all active pairs.`, 'system-line');
+    }
+
+    /**
      * Fetch historical candles and hook live stream.
      * In bsc_twak mode: uses CMC price feed instead of Binance WebSocket.
      * In other modes: uses Binance REST + WebSocket as before.
@@ -929,7 +855,10 @@ class BotEngine {
         this.currentTimeframe = timeframe;
         this.livePrices[pair] = 0;
 
-        // ── BSC / CMC mode bypassed ───────────────────────────────────────────
+        // ── BSC / CMC mode check ──────────────────────────────────────────────
+        if (this.liveTradingMode === 'bsc_twak') {
+            return this.loadPairDataCMC(pair);
+        }
 
         // ── Binance mode (simulated / testnet / mainnet) ───────────────────────
         this.addLog('SYSTEM', `Connecting to Binance Spot server, downloading candles for ${pair} (${timeframe})...`, 'system-line');
@@ -975,13 +904,8 @@ class BotEngine {
 
             this.addLog('SYSTEM', `Loaded data for ${pair} (${this.historicalCandlesMap[pair].length} candles). Live WS is ready.`, 'system-line');
 
-            // Train AI on the pair in background — ONNX models are trained
-            // out-of-process (ml/train.py), so we skip here.
-            if (this.modelType !== 'onnx') {
-                this.trainModel(this.modelType, pair);
-            } else {
-                this.aiBrainTrainedMap[pair] = true;
-            }
+            // Train AI on the pair in background
+            this.trainModel(this.modelType, pair);
 
             return true;
         } catch (error: any) {
@@ -1029,8 +953,7 @@ class BotEngine {
     private async loadPairDataCMC(pair: string): Promise<boolean> {
         this.addLog('SYSTEM', `[CMC] Loading market data for ${pair} from CoinMarketCap...`, 'system-line');
         try {
-            const { pairToBscToken } = await import('./twak-bsc-client');
-            const cmcSym = pairToBscToken(pair);
+            const cmcSym = pair.endsWith('USDT') ? pair.slice(0, -4) : pair;
 
             // Fetch CMC quote and Binance Spot klines in parallel
             const [quotes, binanceCandles] = await Promise.all([
@@ -1313,8 +1236,7 @@ class BotEngine {
 
         // Reload pair data & streams for the new mode
         this.addLog('SYSTEM', `Reloading trading pair data for new mode: ${targetMode.toUpperCase()}...`, 'system-line');
-        const promises = this.activePairs.map(pair => this.loadPairData(pair, this.currentTimeframe));
-        await Promise.all(promises);
+        await this.loadAllActivePairsData(this.currentTimeframe);
 
         // Make sure correct feed is running if bot is running
         if (this.botRunning) {
@@ -1327,6 +1249,40 @@ class BotEngine {
                 }
             });
         }
+
+        this.persistState();
+    }
+
+    public async updateActivePairs(newPairs: string[]) {
+        this.addLog('SYSTEM', `⚙️ Updating active trading pairs: ${newPairs.join(', ')}`, 'info-line');
+
+        // Update active pairs list
+        this.activePairs = newPairs;
+
+        // Re-initialize maps for any newly added pairs
+        this.activePairs.forEach(pair => {
+            if (this.livePrices[pair] === undefined) this.livePrices[pair] = 0;
+            if (this.priceChanges24h[pair] === undefined) this.priceChanges24h[pair] = 0;
+            if (this.volumes24h[pair] === undefined) this.volumes24h[pair] = 0;
+            if (!this.historicalCandlesMap[pair]) this.historicalCandlesMap[pair] = [];
+            if (this.aiBrainTrainedMap[pair] === undefined) this.aiBrainTrainedMap[pair] = false;
+            if (this.trainedModelMap[pair] === undefined) this.trainedModelMap[pair] = null;
+            if (!this.trainingFeaturesMap[pair]) this.trainingFeaturesMap[pair] = [];
+            if (this.gridActiveMap[pair] === undefined) this.gridActiveMap[pair] = false;
+            if (!this.gridOrdersMap[pair]) this.gridOrdersMap[pair] = [];
+            if (this.gridCenterPrices[pair] === undefined) this.gridCenterPrices[pair] = 0;
+            if (this.gridUpperBoundaries[pair] === undefined) this.gridUpperBoundaries[pair] = 0;
+            if (this.gridLowerBoundaries[pair] === undefined) this.gridLowerBoundaries[pair] = 0;
+            if (this.wsMap[pair] === undefined) this.wsMap[pair] = null;
+            if (this.wsReconnectTimeouts[pair] === undefined) this.wsReconnectTimeouts[pair] = null;
+            if (this.lastCandleTimesEvaluated[pair] === undefined) this.lastCandleTimesEvaluated[pair] = null;
+        });
+
+        // Trigger loading for new active pairs
+        await this.loadAllActivePairsData(this.currentTimeframe);
+
+        // Restart CMC feed if it was configured (which updates the polling pairs automatically)
+        this.startCMCFeed();
 
         this.persistState();
     }
@@ -1344,26 +1300,13 @@ class BotEngine {
             this.currentTimeframe = timeframe;
             this.addLog('SYSTEM', `TIMEFRAME CHANGE: Reloading all 3 trading pairs on timeframe ${timeframe}...`, 'system-line');
 
-            const promises = this.activePairs.map(pair => this.loadPairData(pair, timeframe));
-            await Promise.all(promises);
+            await this.loadAllActivePairsData(timeframe);
 
             // ML training & optimisation are not needed in bsc_twak mode —
             // all decisions come from CMC data + LLM Quant Operator.
             if (this.liveTradingMode !== 'bsc_twak') {
                 // Retrain in-process models with the new timeframe data.
-                if (this.modelType !== 'onnx') {
-                    this.trainModel(this.modelType);
-                }
-
-                // For ONNX and Ensemble: check if a model already exists for the new timeframe.
-                if (this.modelType === 'onnx' || this.modelType === 'ensemble') {
-                    for (const p of this.activePairs) {
-                        if (!hasOnnxModel(p, this.onnxKind, timeframe)) {
-                            this.addLog('SYSTEM', `🔄 [ONNX] No model ${this.onnxKind} for ${p}/${timeframe} — auto-triggering training...`, 'system-line');
-                            this.trainOnnxAsync(p, timeframe);
-                        }
-                    }
-                }
+                this.trainModel(this.modelType);
 
                 this.autoOptimizeHyperparameters();
             }
@@ -1448,11 +1391,8 @@ class BotEngine {
             this.logisticAccuracyMap[symbol] = logAccFraction;
             const logAcc = (logAccFraction * 100).toFixed(1);
 
-            // Also trigger background Python ONNX training so the 4th vote is updated
-            this.trainOnnxAsync(symbol, this.currentTimeframe);
-
-            this.addLog('AI', `Ensemble [${symbol}] trained successfully: KNN ${labeledData.length} samples + Logistic (acc ${logAcc}%) + Momentum (stateless) + ONNX (training in background).`, 'buy-line');
-            accuracy = `Ensemble (Logistic ${logAcc}%, KNN ${labeledData.length}, Momentum dyn, ONNX background)`;
+            this.addLog('AI', `Ensemble [${symbol}] trained successfully: KNN ${labeledData.length} samples + Logistic (acc ${logAcc}%) + Momentum (stateless).`, 'buy-line');
+            accuracy = `Ensemble (Logistic ${logAcc}%, KNN ${labeledData.length}, Momentum dyn)`;
         } else {
             this.addLog('AI', `Initialized quantitative Momentum strategy for [${symbol}].`, 'buy-line');
             accuracy = 'Dynamic';
@@ -1504,23 +1444,6 @@ class BotEngine {
             { name: 'MOM', signal: momentum.signal, confidence: momentum.confidence, weight: wMom }
         ];
 
-        // Include ONNX as 4th vote when a model file exists for this pair.
-        // Prefer the timeframe-specific model; fall back to legacy file.
-        // If neither exists, trigger a background retrain so next cycle has a model.
-        let onnxPred: { signal: number; confidence: number } | null = null;
-        if (hasOnnxModel(pair, this.onnxKind, this.currentTimeframe)) {
-            try {
-                const result = await predictONNX(pair, currentFeatures, this.onnxKind, this.currentTimeframe);
-                if (result) {
-                    onnxPred = result;
-                    const wOnnx = this.modelWinrateWeight('onnx');
-                    votes.push({ name: 'ONNX', signal: result.signal, confidence: result.confidence, weight: wOnnx });
-                }
-            } catch {
-                // ONNX inference failure is non-fatal; ensemble continues without it.
-            }
-        }
-
         let scoreLong = 0;
         let scoreShort = 0;
         let totalWeight = 0;
@@ -1559,8 +1482,7 @@ class BotEngine {
             modelVotes: {
                 knn: { dir: dirStr(knn.signal), confidence: knn.confidence },
                 log: { dir: dirStr(logistic.signal), confidence: logistic.confidence, accuracy: Math.round(logAcc * 100) },
-                mom: { dir: dirStr(momentum.signal), confidence: momentum.confidence },
-                onnx: onnxPred ? { dir: dirStr(onnxPred.signal), confidence: onnxPred.confidence } : null
+                mom: { dir: dirStr(momentum.signal), confidence: momentum.confidence }
             }
         };
 
@@ -1572,7 +1494,7 @@ class BotEngine {
      * to a neutral prior (1.0) when not enough trade history exists yet.
      * Floor at 0.2 so a temporarily-decayed model still gets some say.
      */
-    private modelWinrateWeight(model: 'knn' | 'logistic' | 'momentum' | 'onnx' | 'ensemble'): number {
+    private modelWinrateWeight(model: 'knn' | 'logistic' | 'momentum' | 'ensemble'): number {
         const h = this.computeModelHealth(model, 50);
         if (h.n < 10) return 1.0;
         // Map winrate ~50% → weight 1.0; 70% → ~1.4; 30% → ~0.4.
@@ -1584,8 +1506,8 @@ class BotEngine {
      */
     public runBacktest(params: any) {
         const symbol = params.pair || this.currentPair;
-        // 'momentum' and 'onnx' are stateless from the backtester's POV
-        // (they need no per-pair training in-process), so don't gate them.
+        // 'momentum' is stateless from the backtester's POV
+        // (needs no per-pair training in-process), so don't gate it.
         const needsTraining = this.modelType === 'knn' || this.modelType === 'logistic';
         if (needsTraining && !this.aiBrainTrainedMap[symbol]) {
             return { success: false, error: 'Model not trained for this pair' };
@@ -1921,12 +1843,7 @@ class BotEngine {
             if (!activePos) {
                 let pred = { signal: 0, confidence: 50 };
 
-                if (this.modelType === 'onnx') {
-                    // Backtest is synchronous (the optimizer calls it 768x), so
-                    // we don't run ONNX inference here — it would also be slow.
-                    // Use the Momentum proxy in backtest; switch to ONNX live.
-                    pred = this.ai.predictMomentumStrategy(closes.slice(0, candleIndex + 1), highs.slice(0, candleIndex + 1), lows.slice(0, candleIndex + 1), volumes.slice(0, candleIndex + 1));
-                } else if (this.modelType === 'knn') {
+                if (this.modelType === 'knn') {
                     pred = this.ai.predictKNN(trainingFeatures, dataPoint.features);
                 } else if (this.modelType === 'logistic') {
                     pred = this.ai.predictLogisticRegression(trainedModel, dataPoint.features, confidenceThreshold);
@@ -2190,9 +2107,8 @@ class BotEngine {
         }
 
         // Auto-retrain AI in background to integrate newly closed candle into dataset (Continuous Learning!)
-        // ONNX models are trained offline by ml/train.py; skip continuous retrain here.
         // bsc_twak mode uses LLM + CMC signals — no ML retraining needed.
-        if (this.modelType !== 'onnx' && this.modelType !== 'momentum') {
+        if (this.modelType !== 'momentum') {
             this.addLog('SYSTEM', `CONTINUOUS LEARNING: Auto-retraining model ${this.modelType.toUpperCase()} on candle close for ${pair}...`, 'info-line');
             this.trainModel(this.modelType, pair);
         }
@@ -2225,26 +2141,12 @@ class BotEngine {
 
         let pred = { signal: 0, confidence: 50 };
 
-        if (this.modelType === 'onnx') {
-            // Try the timeframe-specific ONNX model first; if it's missing or fails,
-            // fall back to momentum so trading never halts.
-            const onnxPred = await predictONNX(pair, currentPoint.features, this.onnxKind, this.currentTimeframe);
-            if (onnxPred) {
-                pred = onnxPred;
-            } else {
-                this.addLog('AI', `⚠️ [${pair}] ONNX model (${this.onnxKind}/${this.currentTimeframe}) not ready — using Momentum fallback. Triggering training...`, 'warning-line');
-                pred = this.ai.predictMomentumStrategy(closes, highs, lows, volumes);
-                // Auto-trigger training for this timeframe if not already running.
-                if (!this.onnxTrainingPairs.has(pair)) {
-                    this.trainOnnxAsync(pair, this.currentTimeframe);
-                }
-            }
-        } else if (this.modelType === 'knn') {
+        if (this.modelType === 'knn') {
             pred = this.ai.predictKNN(this.trainingFeaturesMap[pair], currentPoint.features);
         } else if (this.modelType === 'logistic') {
             pred = this.ai.predictLogisticRegression(this.trainedModelMap[pair], currentPoint.features, this.confidenceThreshold);
         } else if (this.modelType === 'ensemble') {
-            // T3.6 — parallel 3-model weighted ensemble (now includes ONNX when available).
+            // T3.6 — parallel 3-model weighted ensemble.
             const ens = await this.predictEnsemble(pair, closes, highs, lows, volumes, currentPoint.features);
             pred = { signal: ens.signal, confidence: ens.confidence };
             this.lastEnsembleSignalMap[pair] = ens.ensembleCtx;
@@ -2435,9 +2337,9 @@ class BotEngine {
             sizeUSDT = margin * initialFraction;
         }
 
-        // Enforce minimum order size of 5 USDT
-        if (sizeUSDT < 5) {
-            sizeUSDT = 5;
+        // Enforce minimum order size of 2 USDT
+        if (sizeUSDT < 2) {
+            sizeUSDT = 2;
         }
 
         if (sizeUSDT > this.marginFree) {
@@ -2526,16 +2428,11 @@ class BotEngine {
                 if (isCompetitionActive()) recordTrade(swapRes.txHash);
                 this.addLog('BOT', `✅ BSC TWAK Entry filled. Price: ${this.formatPrice(finalEntryPrice)} | ${tokenSize.toFixed(6)} ${bscSym} | TX: ${swapRes.txHash.slice(0, 12)}...`, 'buy-line');
 
-                // SL + TP automations
-                await new Promise(r => setTimeout(r, 1500));
-                try {
-                    const slAutoId = await twak.placeStopLoss(bscSym, tokenSize, sl);
-                    const tpAutoId = await twak.placeTakeProfit(bscSym, tokenSize, tp);
-                    slOrderId = `sl_${slAutoId}|tp_${tpAutoId}`;
-                    this.addLog('BOT', `🛡️ BSC TWAK automate: SL $${this.formatPrice(sl)} | TP $${this.formatPrice(tp)} (IDs: ${slOrderId.slice(0, 30)})`, 'buy-line');
-                } catch (autoErr: any) {
-                    this.addLog('BOT', `⚠️ BSC: Failed to set TWAK automated SL/TP: ${autoErr.message}. Bot will monitor internally.`, 'warning-line');
-                }
+                // Cache entry price details
+                this.tokenEntryPrices[pair] = { entryPrice: finalEntryPrice, openTime: Date.now() };
+
+                // SL + TP automations (bypassed to save gas, managed in-app)
+                this.addLog('BOT', `🛡️ BSC TWAK: SL $${this.formatPrice(sl)} | TP $${this.formatPrice(tp)} (Managed in-app to save gas)`, 'buy-line');
             } catch (e: any) {
                 this.addLog('BOT', `❌ BSC TWAK Entry failed [${pair}]: ${e.message}`, 'warning-line');
                 return;
@@ -2987,12 +2884,46 @@ class BotEngine {
                         const tpExitPrice = this.applySlippage(pos.tp, 'SELL');
                         const exitFee = tpExitPrice * halfSize * this.takerFeeRate;
                         const partialPnL = halfSize * (tpExitPrice - pos.entryPrice) - exitFee;
+
+                        if (this.liveTradingMode === 'bsc_twak') {
+                            const twak = this.getTWAKClient();
+                            if (twak) {
+                                try {
+                                    if (pos.slOrderId) {
+                                        const ids = pos.slOrderId.split('|');
+                                        for (const idPart of ids) {
+                                            const id = idPart.replace(/^(sl_|tp_)/, '');
+                                            if (id) await twak.deleteAutomate(id).catch(() => {});
+                                        }
+                                        pos.slOrderId = undefined;
+                                    }
+                                    const bscSym = this.bscToken(pos.symbol);
+                                    let sellAmt = halfSize;
+                                    if (bscSym === 'BNB') {
+                                        sellAmt = Math.min(sellAmt, pos.size - 0.003);
+                                    }
+                                    if (sellAmt <= 0) {
+                                        this.addLog('BOT', `⚠️ [TWAK] Skipping BNB partial swap: remaining BNB is too close to gas reserve (0.003 BNB).`, 'warning-line');
+                                        pos.partialClosed = true;
+                                        continue;
+                                    }
+                                    this.addLog('BOT', `📡 BSC TWAK: Swapping 50% partial size (${sellAmt.toFixed(6)} ${bscSym}) → USDT...`, 'info-line');
+                                    const sellRes = await twak.sellToken(sellAmt, bscSym, 1);
+                                    if (isCompetitionActive() && sellRes.txHash) {
+                                        recordTrade(sellRes.txHash);
+                                    }
+                                    this.addLog('BOT', `✅ BSC TWAK Partial-TP swap successful. TX: ${sellRes.txHash.slice(0, 12)}...`, 'buy-line');
+                                } catch (e: any) {
+                                    this.addLog('BOT', `❌ BSC TWAK Partial-TP swap failed: ${e.message}`, 'warning-line');
+                                    continue; // Skip updating memory state to keep synced
+                                }
+                            }
+                        } else {
+                            this.balance += (pos.margin / 2) + partialPnL; // Return 50% margin + profit (fees deducted)
+                        }
+
                         pos.feesPaid = (pos.feesPaid || 0) + exitFee;
                         this.totalFeesPaid += exitFee;
-
-
-
-                        this.balance += (pos.margin / 2) + partialPnL; // Return 50% margin + profit (fees deducted)
                         pos.size = halfSize;
                         pos.margin = pos.margin / 2;
                         pos.sl = pos.entryPrice; // Move SL to Entry
@@ -3069,13 +3000,21 @@ class BotEngine {
                                 }
                             }
                             const bscSym = this.bscToken(pos.symbol);
-                            this.addLog('BOT', `📡 BSC TWAK: Swapping ${pos.size.toFixed(6)} ${bscSym} → USDT (auto-closing position due to ${reason})...`, 'info-line');
-                            const sellRes = await twak.sellToken(pos.size, bscSym, 1);
-                            const actualExit = sellRes.executedPrice > 0 ? sellRes.executedPrice : currentPrice;
-                            if (isCompetitionActive() && sellRes.txHash) {
-                                recordTrade(sellRes.txHash);
+                            let sellAmt = pos.size;
+                            if (bscSym === 'BNB') {
+                                sellAmt = Math.min(sellAmt, pos.size - 0.003);
                             }
-                            this.addLog('BOT', `✅ BSC TWAK closed position automatically. Price: ${this.formatPrice(actualExit)} | TX: ${sellRes.txHash.slice(0, 12)}...`, finalPnL >= 0 ? 'buy-line' : 'sell-line');
+                            if (sellAmt <= 0) {
+                                this.addLog('BOT', `⚠️ [TWAK] Cannot close BNB position: remaining BNB is less than gas reserve (0.003 BNB). Removing from tracking.`, 'warning-line');
+                            } else {
+                                this.addLog('BOT', `📡 BSC TWAK: Swapping ${sellAmt.toFixed(6)} ${bscSym} → USDT (auto-closing position due to ${reason})...`, 'info-line');
+                                const sellRes = await twak.sellToken(sellAmt, bscSym, 1);
+                                const actualExit = sellRes.executedPrice > 0 ? sellRes.executedPrice : currentPrice;
+                                if (isCompetitionActive() && sellRes.txHash) {
+                                    recordTrade(sellRes.txHash);
+                                }
+                                this.addLog('BOT', `✅ BSC TWAK closed position automatically. Price: ${this.formatPrice(actualExit)} | TX: ${sellRes.txHash.slice(0, 12)}...`, finalPnL >= 0 ? 'buy-line' : 'sell-line');
+                            }
                         } catch (e: any) {
                             this.addLog('BOT', `⚠️ BSC TWAK auto-closing position failed: ${e.message}. Retrying on next tick.`, 'warning-line');
                             pos.isClosing = false; // Reset flag so it can retry
@@ -3190,9 +3129,9 @@ class BotEngine {
 
         let stepMargin = totalMargin * allocationFraction;
 
-        // Enforce minimum DCA step size of 5 USDT
-        if (stepMargin < 5) {
-            stepMargin = 5;
+        // Enforce minimum DCA step size of 2 USDT
+        if (stepMargin < 2) {
+            stepMargin = 2;
         }
 
         // Check if there is enough free margin
@@ -3247,6 +3186,9 @@ class BotEngine {
         pos.dcaStep = nextStep;
         pos.feesPaid = (pos.feesPaid || 0) + stepFee;
 
+        // Update local cache with averaged price
+        this.tokenEntryPrices[pair] = { entryPrice: newEntryPrice, openTime: pos.openTime || Date.now() };
+
         if (this.liveTradingMode === 'simulated') {
             this.balance -= stepMargin;
             this.balance -= stepFee;
@@ -3282,7 +3224,7 @@ class BotEngine {
         pos.originalSl = newSl; // Reset original SL relative to new entry
         pos.trailingTier = 0;   // Reset trailing tier since entry shifted
 
-        // If live trading on-chain, cancel outstanding SL/TP automated orders and place new ones
+        // If live trading on-chain, cancel outstanding SL/TP automated orders (we now manage internally)
         if (this.liveTradingMode === 'bsc_twak') {
             const twak = this.getTWAKClient();
             if (twak) {
@@ -3296,19 +3238,8 @@ class BotEngine {
                         }
                     }
                 }
-                // Place new TWAK automation orders for updated position size
-                const bscSym = this.bscToken(pair);
-                await new Promise(r => setTimeout(r, 1000));
-                try {
-                    const slAutoId = await twak.placeStopLoss(bscSym, newSize, newSl);
-                    const tpAutoId = await twak.placeTakeProfit(bscSym, newSize, newTp);
-                    pos.slOrderId = `sl_${slAutoId}|tp_${tpAutoId}`;
-                    pos.binanceSlSynced = true;
-                    this.addLog('BOT', `🛡️ BSC TWAK automate updated: SL ${this.formatPrice(newSl)} | TP ${this.formatPrice(newTp)}`, 'buy-line');
-                } catch (autoErr: any) {
-                    this.addLog('BOT', `⚠️ BSC: Failed to update TWAK automated SL/TP: ${autoErr.message}. Bot will monitor internally.`, 'warning-line');
-                    pos.binanceSlSynced = false;
-                }
+                pos.slOrderId = undefined; // clear out old on-chain automation IDs
+                this.addLog('BOT', `🛡️ BSC TWAK internal monitoring updated: SL ${this.formatPrice(newSl)} | TP ${this.formatPrice(newTp)} (Managed in-app to save gas)`, 'buy-line');
             }
         }
 
@@ -3482,16 +3413,11 @@ class BotEngine {
             if (isCompetitionActive()) recordTrade(swapRes.txHash);
             this.addLog('BOT', `✅ BSC TWAK Entry filled. Price: ${finalEntryPrice.toLocaleString()} | ${tokenSize.toFixed(6)} ${bscSym} | TX: ${swapRes.txHash.slice(0, 12)}...`, 'buy-line');
 
-            // SL + TP automations
-            await new Promise(r => setTimeout(r, 1500));
-            try {
-                const slAutoId = await twak.placeStopLoss(bscSym, tokenSize, sl);
-                const tpAutoId = await twak.placeTakeProfit(bscSym, tokenSize, tp);
-                slOrderId = `sl_${slAutoId}|tp_${tpAutoId}`;
-                this.addLog('BOT', `🛡️ BSC TWAK automate: SL $${sl.toLocaleString()} | TP $${tp.toLocaleString()} (IDs: ${slOrderId.slice(0, 30)})`, 'buy-line');
-            } catch (autoErr: any) {
-                this.addLog('BOT', `⚠️ BSC: Failed to set TWAK automated SL/TP: ${autoErr.message}. Bot will monitor internally.`, 'warning-line');
-            }
+            // Cache entry price details
+            this.tokenEntryPrices[pair] = { entryPrice: finalEntryPrice, openTime: Date.now() };
+
+            // SL + TP automations (bypassed to save gas, managed in-app)
+            this.addLog('BOT', `🛡️ BSC TWAK: SL $${sl.toLocaleString()} | TP $${tp.toLocaleString()} (Managed in-app to save gas)`, 'buy-line');
         } catch (e: any) {
             this.addLog('BOT', `❌ BSC TWAK Entry failed [${pair}]: ${e.message}`, 'warning-line');
             return;
@@ -3531,6 +3457,26 @@ class BotEngine {
         this.addLog('BOT', `📊 New position [${pair}]: LONG ${finalEntryPrice.toLocaleString()} | ${tokenSize.toFixed(6)} tokens | Margin: ${sizeUSDT.toFixed(2)}`, 'buy-line');
     }
 
+    public updateEntryDetailsManual(symbol: string, entryPrice: number, openTime?: number) {
+        const pair = symbol.toUpperCase();
+        const t = openTime || Date.now();
+        this.tokenEntryPrices[pair] = { entryPrice, openTime: t };
+
+        const pos = this.openPositions.find(p => p.symbol === pair);
+        if (pos) {
+            pos.entryPrice = entryPrice;
+            pos.openTime = t;
+            const slPct = parseFloat(process.env.SL_ATR ?? '3.0') / 100;
+            const tpPct = parseFloat(process.env.TP_ATR ?? '6.0') / 100;
+            pos.sl = entryPrice * (1 - slPct);
+            pos.tp = entryPrice * (1 + tpPct);
+            pos.originalSl = pos.sl;
+            this.addLog('SYSTEM', `⚙️ Manually updated entry price for ${pair} to $${entryPrice.toLocaleString()} (New SL: ${pos.sl.toLocaleString()}, TP: ${pos.tp.toLocaleString()})`, 'info-line');
+        }
+        this.persistState();
+        return true;
+    }
+
     public async closePositionManual(index: number, historyLabel = 'Manual Exit 🚪', orderReason = 'Manual Position Close 🚪') {
         const pos = this.openPositions[index];
         if (!pos) return false;
@@ -3562,13 +3508,21 @@ class BotEngine {
                         }
                     }
                     const bscSym = this.bscToken(pos.symbol);
-                    this.addLog('BOT', `📡 BSC TWAK: Swapping ${pos.size.toFixed(6)} ${bscSym} → USDT (closing position)...`, 'info-line');
-                    const sellRes = await twak.sellToken(pos.size, bscSym, 1);
-                    const actualExit = sellRes.executedPrice > 0 ? sellRes.executedPrice : rawExit;
-                    if (isCompetitionActive() && sellRes.txHash) {
-                        recordTrade(sellRes.txHash);
+                    let sellAmt = pos.size;
+                    if (bscSym === 'BNB') {
+                        sellAmt = Math.min(sellAmt, pos.size - 0.003);
                     }
-                    this.addLog('BOT', `✅ BSC TWAK closed position. Price: ${this.formatPrice(actualExit)} | TX: ${sellRes.txHash.slice(0, 12)}...`, pos.pnl >= 0 ? 'buy-line' : 'sell-line');
+                    if (sellAmt <= 0) {
+                        this.addLog('BOT', `⚠️ [TWAK] Cannot close BNB position: remaining BNB is less than gas reserve (0.003 BNB). Removing from tracking.`, 'warning-line');
+                    } else {
+                        this.addLog('BOT', `📡 BSC TWAK: Swapping ${sellAmt.toFixed(6)} ${bscSym} → USDT (closing position)...`, 'info-line');
+                        const sellRes = await twak.sellToken(sellAmt, bscSym, 1);
+                        const actualExit = sellRes.executedPrice > 0 ? sellRes.executedPrice : rawExit;
+                        if (isCompetitionActive() && sellRes.txHash) {
+                            recordTrade(sellRes.txHash);
+                        }
+                        this.addLog('BOT', `✅ BSC TWAK closed position. Price: ${this.formatPrice(actualExit)} | TX: ${sellRes.txHash.slice(0, 12)}...`, pos.pnl >= 0 ? 'buy-line' : 'sell-line');
+                    }
                 } catch (e: any) {
                     this.addLog('BOT', `⚠️ BSC TWAK position close failed: ${e.message}. Retrying manually or automatically.`, 'warning-line');
                     pos.isClosing = false; // Reset flag so it can retry
@@ -3760,20 +3714,19 @@ class BotEngine {
      */
     public autoOptimizeHyperparameters(pair?: string) {
         const symbol = pair || this.currentPair;
-        // Same logic as runBacktest: momentum/onnx need no in-process training.
+        // Same logic as runBacktest: momentum needs no in-process training.
         const needsTraining = this.modelType === 'knn' || this.modelType === 'logistic';
         if (needsTraining && !this.aiBrainTrainedMap[symbol]) {
             this.addLog('SYSTEM', `🛡️ AUTO-OPTIMIZER: Cannot optimize because AI model for ${symbol} is not trained.`, 'warning-line');
             return { success: false, error: 'Model not trained' };
         }
 
-        // ONNX / ensemble: the backtest uses Momentum as a synchronous proxy
-        // because ONNX is async Python inference. Running 768 Momentum backtests
-        // on choppy short timeframes produces near-universal negative expectancy,
-        // making the optimizer output meaningless (and misleading) for ONNX users.
+        // Ensemble: the backtest uses Momentum as a synchronous proxy.
+        // Running 768 Momentum backtests on choppy short timeframes produces
+        // near-universal negative expectancy, making optimizer output misleading.
         // Skip it and advise the user to rely on the LLM Quant Operator instead.
-        if (this.modelType === 'onnx' || this.modelType === 'ensemble') {
-            this.addLog('SYSTEM', `ℹ️ AUTO-OPTIMIZER: Skipping Grid Search for model ${this.modelType.toUpperCase()} — synchronous backtests do not support Python ONNX inference. SL/TP/Risk parameters will be adjusted by LLM Quant Operator based on actual winrate.`, 'info-line');
+        if (this.modelType === 'ensemble') {
+            this.addLog('SYSTEM', `ℹ️ AUTO-OPTIMIZER: Skipping Grid Search for model ${this.modelType.toUpperCase()} — SL/TP/Risk parameters will be adjusted by LLM Quant Operator based on actual winrate.`, 'info-line');
             return { success: true, skipped: true };
         }
 
@@ -4147,7 +4100,6 @@ class BotEngine {
             currentDrawdownFromPeak: Number(this.getCurrentDrawdownFromPeak().toFixed(4)),
             pauseNewEntries: this.pauseNewEntries,
             ensembleSignal: input.ensembleSignal,
-            onnxModelAgeHours: onnxModelAgeHours(input.pair, this.onnxKind, this.currentTimeframe),
             costs: {
                 takerFeeRate: this.takerFeeRate,
                 slippageBps: this.slippageBps
@@ -4333,11 +4285,10 @@ class BotEngine {
 
             let optimalTimeframe: '1m' | '5m' | '15m' | '1h' = this.currentTimeframe as any;
             // The Quant Operator only switches between the three in-process
-            // models — ONNX and ENSEMBLE are opt-in by the user and not
-            // regime-driven; we map them to a safe default for ranking but
-            // honor the user pin further down.
+            // models — ENSEMBLE is opt-in by the user and not regime-driven;
+            // we map it to a safe default for ranking but honor the user pin further down.
             const currentModelForRanking: 'knn' | 'logistic' | 'momentum' =
-                (this.modelType === 'onnx' || this.modelType === 'ensemble')
+                (this.modelType === 'ensemble')
                     ? 'momentum'
                     : this.modelType;
             let optimalModel: 'knn' | 'logistic' | 'momentum' = currentModelForRanking;
@@ -4416,46 +4367,6 @@ class BotEngine {
                     }
                 }
 
-                // Auto-trigger: if ONNX model file is completely absent for current TF,
-                // kick off training — but enforce a 15-minute cooldown so a failed train
-                // doesn't cause an infinite retry loop every 30s.
-                if (this.modelType === 'onnx' || this.modelType === 'ensemble') {
-                    const tf = this.currentTimeframe;
-                    const missingModelCooldownMs = 15 * 60_000;
-                    for (const p of this.activePairs) {
-                        const age = onnxModelAgeHours(p, this.onnxKind, tf);
-                        const key = `${p}_${tf}`;
-                        const recentAttempt = (Date.now() - (this.lastOnnxTrainTimeMap[key] ?? 0)) < missingModelCooldownMs;
-                        if (age === null && !this.onnxTrainingPairs.has(p) && !recentAttempt) {
-                            this.addLog('SYSTEM', `🔍 [ONNX] Model not found for ${p} @ ${tf}. Auto-triggering Python training...`, 'info-line');
-                            this.lastOnnxTrainTimeMap[key] = Date.now();
-                            this.trainOnnxAsync(p, tf);
-                        }
-                    }
-                }
-
-                // LLM-triggered ONNX retrain: spawns Python in background, non-blocking.
-                // Guard: only allow once every 60 minutes to prevent spam.
-                if (llmDecision.triggerOnnxRetrain === true) {
-                    const minRetriggerMs = 60 * 60_000;
-                    const now = Date.now();
-                    const tf = this.currentTimeframe;
-                    // Guard per pair+TF so switching timeframe never blocks a legitimate retrain.
-                    const canRetrigger = this.activePairs.every(
-                        p => (now - (this.lastOnnxTrainTimeMap[`${p}_${tf}`] ?? 0)) >= minRetriggerMs
-                    );
-                    if (canRetrigger) {
-                        this.addLog('SYSTEM', `🧠 [LLM ONNX] Quant Operator requested ONNX retraining (${tf}) due to performance degradation. Launching Python trainer in background...`, 'info-line');
-                        for (const p of this.activePairs) {
-                            this.lastOnnxTrainTimeMap[`${p}_${tf}`] = now;
-                            this.trainOnnxAsync(p, tf);
-                        }
-                    } else {
-                        const oldestMs = Math.min(...this.activePairs.map(p => this.lastOnnxTrainTimeMap[`${p}_${tf}`] ?? 0));
-                        const minutesLeft = Math.ceil((minRetriggerMs - (now - oldestMs)) / 60_000);
-                        this.addLog('SYSTEM', `⏳ [LLM ONNX] Quant Operator suggested retraining but skipped — ${minutesLeft} minutes left for cooldown.`, 'info-line');
-                    }
-                }
 
                 // Dynamic LLM Position Adjustments
                 if (llmDecision.positionAdjustments && llmDecision.positionAdjustments.length > 0) {
@@ -4593,19 +4504,16 @@ class BotEngine {
             // Adaptive hysteresis: clear regimes switch fast, borderline ones wait.
             const requiredConfirmations = regimeConfidence >= 80 ? 1 : (regimeConfidence >= 62 ? 2 : 3);
 
-            // Honor explicit ONNX pin from the user. The Quant Operator is
+            // Honor explicit ENSEMBLE pin from the user. The Quant Operator is
             // still free to flip timeframe / grid / regime, but it is NOT
             // allowed to silently swap the model away from what the user
             // selected. Without this, every 30-second tick would reset
             // modelType back to one of the three in-process models and the
             // UI would appear to "revert" on its own.
-            // ONNX and ENSEMBLE are user-selected modes that the Quant
-            // Operator must NOT silently override. They have their own
-            // adaptive logic (ONNX = offline-retrained; Ensemble = online
-            // weighted vote across all 3 in-process models).
-            const userPinnedOnnx = this.modelType === 'onnx';
+            // ENSEMBLE is a user-selected mode that the Quant Operator must
+            // NOT silently override (online weighted vote across all 3 in-process models).
             const userPinnedEnsemble = this.modelType === 'ensemble';
-            const userPinned = userPinnedOnnx || userPinnedEnsemble;
+            const userPinned = userPinnedEnsemble;
 
             // Hysteresis: Regime must be confirmed N consecutive times before switching
             const currentRegimeKey = `${optimalTimeframe}|${userPinned ? this.modelType : optimalModel}|${optimalGridMode}`;
@@ -4666,10 +4574,9 @@ class BotEngine {
                         } else if (userPinned && optimalModel !== 'momentum') {
                             // Tell the user we noticed the regime would prefer a
                             // different model but we respect their pin.
-                            const label = userPinnedOnnx ? 'ONNX' : 'ENSEMBLE';
                             this.quantOperatorThoughts.push({
                                 time: timeStr,
-                                message: `🔒 Keeping model ${label} based on user selection (regime suggested ${optimalModel.toUpperCase()}). Only adjusting timeframe/grid.`,
+                                message: `🔒 Keeping model ENSEMBLE based on user selection (regime suggested ${optimalModel.toUpperCase()}). Only adjusting timeframe/grid.`,
                                 type: 'info'
                             });
                         }
@@ -4731,15 +4638,208 @@ class BotEngine {
                 if (!twak) return;
                 try {
                     const portfolio = await twak.getPortfolio();
+
+                    // Recover missing open positions or self-heal active pairs directly from chain to bypass indexer lag
+                    for (const pair of this.activePairs) {
+                        const tokenSym = pair.endsWith('USDT') ? pair.slice(0, -4) : pair;
+                        if (tokenSym === 'USDT' || tokenSym === 'BNB') continue;
+
+                        const hasAsset = portfolio.some(a => a.symbol.toUpperCase() === tokenSym.toUpperCase());
+                        if (!hasAsset) {
+                            const isOpen = this.openPositions.some(p => p.symbol === pair);
+                            const lastCheck = this.lastDirectCheckTimeMap[pair] || 0;
+                            const timeSinceLastCheck = Date.now() - lastCheck;
+
+                            // Query balance directly if we expect a position, or check once every 2 minutes for other active pairs as self-healing
+                            if (isOpen || timeSinceLastCheck > 120000) {
+                                this.lastDirectCheckTimeMap[pair] = Date.now();
+                                try {
+                                    const directBal = await twak.getTokenBalance(tokenSym);
+                                    if (directBal.balance > 0) {
+                                        portfolio.push({
+                                            symbol: tokenSym,
+                                            balance: directBal.balance,
+                                            usdValue: directBal.usdValue,
+                                            chain: 'bsc'
+                                        });
+                                        this.addLog('SYSTEM', `🔍 [TWAK Sync] Recovered missing token ${tokenSym} balance from direct query: ${directBal.balance}`, 'info-line');
+                                    }
+                                } catch (e: any) {
+                                    console.error(`Failed to fetch direct balance for missing active token ${tokenSym}:`, e);
+                                }
+                            }
+                        }
+                    }
+
+                    const automates = await twak.listAutomates().catch(() => []);
+
                     const usdt = portfolio.find(a => a.symbol?.toUpperCase() === 'USDT');
                     const usdtBal = usdt?.usdValue ?? usdt?.balance ?? 0;
                     const totalUsd = portfolio.reduce((sum, a) => sum + (a.usdValue || 0), 0);
                     this.balance = usdtBal;
                     this.marginFree = usdtBal;
-                    // Update competition guard peak
                     if (isCompetitionActive()) {
                         updatePortfolioPeak(totalUsd);
                     }
+
+                    // On-chain Position Sync
+                    const updatedPositions: Position[] = [];
+
+                    for (const asset of portfolio) {
+                        const tokenSym = asset.symbol.toUpperCase();
+                        if (tokenSym === 'USDT') continue;
+
+                        // Check if in 149 eligible list
+                        if (!ELIGIBLE_BSC_TOKENS.has(tokenSym)) {
+                            continue;
+                        }
+
+                        const pairSymbol = tokenSym + 'USDT';
+
+                        // Only load pairs currently present in active configuration (ignore trash coins)
+                        if (!this.activePairs.includes(pairSymbol)) {
+                            continue;
+                        }
+
+                        const currentPrice = this.livePrices[pairSymbol] || this.livePrice || 0;
+                        const assetUsdValue = asset.usdValue > 0 ? asset.usdValue : asset.balance * (currentPrice > 0 ? currentPrice : 1);
+
+                        // Ignore BNB gas reserve (balance <= 0.005 BNB)
+                        if (tokenSym === 'BNB' && asset.balance <= 0.005) {
+                            continue;
+                        }
+
+                        // Ignore dust positions (balance < 0.50 USD)
+                        if (assetUsdValue <= 0.50) {
+                            continue;
+                        }
+
+                        // See if there's an existing position in memory for this symbol
+                        const existingPos = this.openPositions.find(p => p.symbol === pairSymbol);
+
+                        // Determine SL and TP from on-chain automations if available
+                        let sl = existingPos ? existingPos.sl : 0;
+                        let tp = existingPos ? existingPos.tp : 0;
+                        let slOrderId = existingPos ? existingPos.slOrderId : undefined;
+
+                        // Parse automates for this token
+                        const tokenAutomates = automates.filter(
+                            a => a.fromSymbol.toUpperCase() === tokenSym || 
+                                 a.fromSymbol.toUpperCase() === pairToBscToken(pairSymbol).toUpperCase()
+                        );
+
+                        const slAutomate = tokenAutomates.find(a => a.condition === 'below');
+                        const tpAutomate = tokenAutomates.find(a => a.condition === 'above');
+
+                        if (slAutomate) {
+                            sl = slAutomate.price;
+                            if (!slOrderId || !slOrderId.includes(slAutomate.id)) {
+                                slOrderId = slOrderId ? `${slOrderId}|sl_${slAutomate.id}` : `sl_${slAutomate.id}`;
+                            }
+                        }
+                        if (tpAutomate) {
+                            tp = tpAutomate.price;
+                            if (!slOrderId || !slOrderId.includes(tpAutomate.id)) {
+                                slOrderId = slOrderId ? `${slOrderId}|tp_${tpAutomate.id}` : `tp_${tpAutomate.id}`;
+                            }
+                        }
+
+                        // Determine real entryPrice and openTime
+                        let entryPrice = existingPos ? existingPos.entryPrice : 0;
+                        let openTime = existingPos ? existingPos.openTime : 0;
+
+                        if (!existingPos) {
+                            const cached = this.tokenEntryPrices[pairSymbol];
+                            if (cached && cached.entryPrice > 0) {
+                                entryPrice = cached.entryPrice;
+                                openTime = cached.openTime;
+                            } else {
+                                try {
+                                    const entryData = await twak.getTokenEntryFromHistory(tokenSym);
+                                    if (entryData) {
+                                        entryPrice = entryData.entryPrice > 0 ? entryData.entryPrice : (currentPrice > 0 ? currentPrice : (asset.balance > 0 ? assetUsdValue / asset.balance : 0));
+                                        openTime = entryData.entryTime;
+                                        this.tokenEntryPrices[pairSymbol] = { entryPrice, openTime };
+                                    }
+                                } catch (err: any) {
+                                    this.addLog('SYSTEM', `⚠️ [TWAK] Failed to query entry details for ${tokenSym}: ${err?.message || err}`, 'warning-line');
+                                }
+                            }
+                        }
+
+                        // Fallback values if still unresolved
+                        if (entryPrice === 0) {
+                            entryPrice = currentPrice > 0 ? currentPrice : (asset.balance > 0 ? assetUsdValue / asset.balance : 0);
+                        }
+                        if (openTime === 0) {
+                            openTime = Date.now();
+                        }
+
+                        // Fallback SL/TP if not set (neither in existingPos nor in automates)
+                        if (sl === 0 || tp === 0) {
+                            const refPrice = entryPrice; // Use historical entry price as the reference!
+                            if (refPrice > 0) {
+                                const slPct = parseFloat(process.env.SL_ATR ?? '3.0') / 100;
+                                const tpPct = parseFloat(process.env.TP_ATR ?? '6.0') / 100;
+                                if (sl === 0) sl = refPrice * (1 - slPct);
+                                if (tp === 0) tp = refPrice * (1 + tpPct);
+                            }
+                        }
+
+                        // Construct the position
+                        const pos: Position = {
+                            symbol: pairSymbol,
+                            type: 'LONG',
+                            leverage: 1,
+                            size: asset.balance,
+                            entryPrice,
+                            margin: assetUsdValue,
+                            liqPrice: 0,
+                            sl,
+                            tp,
+                            pnl: existingPos ? existingPos.pnl : 0,
+                            pnlPercent: existingPos ? existingPos.pnlPercent : 0,
+                            partialClosed: existingPos ? existingPos.partialClosed : false,
+                            binanceOrderId: existingPos ? existingPos.binanceOrderId : undefined,
+                            slOrderId,
+                            openTime,
+                            feesPaid: existingPos ? existingPos.feesPaid : 0,
+                            modelType: existingPos ? existingPos.modelType : this.modelType,
+                            originalSl: existingPos ? existingPos.originalSl : sl,
+                            trailingTier: existingPos ? existingPos.trailingTier : 0,
+                            binanceSlSynced: existingPos ? existingPos.binanceSlSynced : (slOrderId != null),
+                            entryAtr: existingPos ? existingPos.entryAtr : undefined,
+                            dcaStep: existingPos ? existingPos.dcaStep : undefined,
+                            dcaMaxSteps: existingPos ? existingPos.dcaMaxSteps : undefined,
+                            dcaTotalMargin: existingPos ? existingPos.dcaTotalMargin : undefined,
+                            dcaPriceDropPct: existingPos ? existingPos.dcaPriceDropPct : undefined,
+                        };
+
+                        // Update live PnL right away
+                        if (currentPrice > 0) {
+                            pos.pnl = pos.size * (currentPrice - pos.entryPrice);
+                            pos.pnlPercent = (pos.pnl / pos.margin) * 100;
+                        }
+
+                        updatedPositions.push(pos);
+                    }
+
+                    // Replace openPositions with the updated list from the chain
+                    const oldSymbols = this.openPositions.map(p => p.symbol);
+                    const newSymbols = updatedPositions.map(p => p.symbol);
+
+                    const added = newSymbols.filter(s => !oldSymbols.includes(s));
+                    const removed = oldSymbols.filter(s => !newSymbols.includes(s));
+
+                    if (added.length > 0) {
+                        this.addLog('SYSTEM', `📥 Synced open positions: imported ${added.join(', ')}`, 'info-line');
+                    }
+                    if (removed.length > 0) {
+                        this.addLog('SYSTEM', `📤 Synced open positions: removed ${removed.join(', ')}`, 'info-line');
+                    }
+
+                    this.openPositions = updatedPositions;
+                    this.recomputeLedger();
                 } catch (err: any) {
                     this.addLog('SYSTEM', `⚠️ [TWAK] Failed to sync on-chain balance: ${err?.message || err}`, 'warning-line');
                 }
@@ -4791,7 +4891,6 @@ class BotEngine {
             livePrices: this.livePrices,
             priceChanges24h: this.priceChanges24h,
             volumes24h: this.volumes24h,
-            historicalCandlesMap: this.historicalCandlesMap,
 
             // compatibility fields
             livePrice: this.livePrice,

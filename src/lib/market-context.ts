@@ -60,7 +60,6 @@ export interface EnsembleSignalContext {
         knn:  { dir: string; confidence: number };
         log:  { dir: string; confidence: number; accuracy: number };
         mom:  { dir: string; confidence: number };
-        onnx: { dir: string; confidence: number } | null;
     };
 }
 
@@ -115,11 +114,6 @@ export interface MarketContext {
      * calibrate SL/TP decisions using quantitative signal quality data.
      */
     ensembleSignal?: EnsembleSignalContext;
-    /**
-     * Age of the currently loaded ONNX model in hours (null = no model yet).
-     * Used by the LLM to decide whether a retrain is needed due to stale data.
-     */
-    onnxModelAgeHours: number | null;
     costs: {
         takerFeeRate: number;
         slippageBps: number;
@@ -180,13 +174,6 @@ export interface QuantOperatorDecision {
     /** When daily target is met: PAUSE_NEW_ENTRIES stops new trades; NORMAL = no change. */
     targetMetAction?: 'NORMAL' | 'PAUSE_NEW_ENTRIES';
     positionAdjustments?: PositionAdjustment[];
-    /**
-     * When true, LLM is telling the bot to trigger a fresh Python ONNX retrain
-     * in the background. Use when ensemble accuracy has visibly degraded (split
-     * signals, low winrate) and the market regime has shifted significantly.
-     * The bot will call trainOnnxAsync() for all active pairs — non-blocking.
-     */
-    triggerOnnxRetrain?: boolean;
 }
 
 export function summarizeRecentTrades(
@@ -264,7 +251,6 @@ Respond ONLY with a strict JSON object:
   "trailingTpAggressiveness": number (0.5 to 2.0; >1.0 = trail tighter),
   "forceExit": boolean (true only for emergency sell-all),
   "targetMetAction": "NORMAL"|"PAUSE_NEW_ENTRIES",
-  "triggerOnnxRetrain": boolean,
   "confidence": number (0-100),
   "reasoning": string (1-2 sentences in Vietnamese),
   "positionAdjustments": [{"symbol":string,"action":"HOLD"|"EXIT"|"TIGHTEN_SL"|"EXTEND_TP"|"MOVE_TO_ENTRY","reason":string,"customSlPrice"?:number,"customTpPrice"?:number}] (optional)
@@ -275,17 +261,12 @@ TF Rules:
 - 5m: Chop > 52 OR (Vol < 0.4%, Trend < 30).
 - 15m: DEFAULT (Chop 38-62, Vol 0.4-1.5%).
 - 1h: Chop < 38, Trend > 55, Vol > 0.8%.
-Keep 15m default unless regime shift is persistent. TF change triggers 2-5m background ONNX retrain (cooldown 60m).
+Keep 15m default unless regime shift is persistent.
 
 Model & Risk:
 - Momentum: High Trend, Low Chop. KNN/Logistic: Mixed.
 - Reduce riskMultiplier (<1.0) if volatility is extreme, winrate is low, or drawdown is high. Max riskMultiplier is 1.0.
 - Choppy/Volatile: slTightness < 1.0, trailingTp > 1.2. Strong trend: tpExtension > 1.0, trailingTp < 1.0.
-
-ONNX Retrain (triggerOnnxRetrain = true if):
-- Consensus = 'split' AND winrateLast20 < 45% AND modelAge > 8h.
-- ModelAge > 18h AND regime changed AND winrateLast20 < 50%.
-- ModelAge is null (no model yet).
 
 Signal Quality:
 - Consensus 'unanimous' + confidence >= 75: Favour HOLD/EXTEND_TP.
