@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getBotEngine } from '@/lib/bot-engine';
+import { checkAuth } from '@/lib/auth-helper';
 
 export async function POST(req: Request) {
+    if (!(await checkAuth())) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     try {
         const bot = getBotEngine();
         const { modelType } = await req.json();

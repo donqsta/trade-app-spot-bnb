@@ -40,7 +40,7 @@ export const ELIGIBLE_BSC_TOKENS = new Set([
     'SNX','FORM','LAB','HTX','USDf','CTM','BDX','SLX','UB','DUCKY','FRAX','BILL',
     'WFI','KOGE','ALE','FRXUSD','USDF','GOMINING','VCNT','GUA','DUSD','SMILEK',
     '0G','BEAM','MY','SOON','REAL','Q','AIOZ','ZIG','YFI','TAC','CYS','ZAMA',
-    'TRIA','HUMA','PLUME','ZIL','XPR','ZETA','NILA','ROSE','VELO','UAI','BRETT',
+    'TRIA','HUMA','ZIL','XPR','ZETA','NILA','ROSE','VELO','UAI','BRETT',
     'OPEN','BSB','TOSHI','BAS','ACH','AXL','LUR','ELF','KAVA','APR','IRYS','EURI',
     'XUSD','BARD','DUSK','SUSHI','PEAQ','COAI','BDCA','XAUM','BNB',
 ]);

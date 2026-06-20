@@ -164,6 +164,7 @@ class BotEngine {
     public volumes24h: { [symbol: string]: number } = {};
     public tokenEntryPrices: Record<string, { entryPrice: number; openTime: number }> = {};
     private lastDirectCheckTimeMap: Record<string, number> = {};
+    private syncFailCounts: Record<string, number> = {};
 
     // Historical data parsed from Binance per pair
     public historicalCandlesMap: { [symbol: string]: Candle[] } = {};
@@ -397,6 +398,63 @@ class BotEngine {
     public takerFeeRate = 0.0010;        // 0.1% per fill (Spot default)
     public slippageBps = 2;              // 2 bps = 0.02% adverse slippage per market fill
     public totalFeesPaid = 0;
+
+    get effectiveTakerFeeRate(): number {
+        return this.liveTradingMode === 'bsc_twak' ? 0.0025 : this.takerFeeRate;
+    }
+
+    get effectiveSlippageBps(): number {
+        return this.liveTradingMode === 'bsc_twak' ? 150 : this.slippageBps;
+    }
+
+    public getBscGasFeeUsdt(): number {
+        const bnbPrice = this.livePrices['BNBUSDT'] || this.livePrices['BNB'] || 600;
+        const multiplier = process.env.BSC_GAS_MULTIPLIER ? parseFloat(process.env.BSC_GAS_MULTIPLIER) : 0.0008;
+        return multiplier * bnbPrice; // ~ 0.0008 BNB by default, or configurable
+    }
+
+    public getExpectedRoundtripCost(sizeUsdt: number): number {
+        const slip = sizeUsdt * (this.effectiveSlippageBps * 2 / 10000);
+        const fee = sizeUsdt * (this.effectiveTakerFeeRate * 2);
+        const gas = this.liveTradingMode === 'bsc_twak' ? this.getBscGasFeeUsdt() * 2 : 0;
+        return slip + fee + gas;
+    }
+
+    public calculateNetPnL(pos: Position, currentPrice: number): { pnl: number; pnlPercent: number } {
+        const direction = pos.type === 'LONG' ? 1 : -1;
+        const exitSlippage = this.effectiveSlippageBps / 10000;
+        const exitFeeRate = this.effectiveTakerFeeRate;
+        const exitGas = this.liveTradingMode === 'bsc_twak' ? this.getBscGasFeeUsdt() : 0;
+        const entryGas = this.liveTradingMode === 'bsc_twak' ? this.getBscGasFeeUsdt() : 0;
+
+        const slippedExitPrice = direction === 1
+            ? currentPrice * (1 - exitSlippage)
+            : currentPrice * (1 + exitSlippage);
+
+        const exitFee = slippedExitPrice * pos.size * exitFeeRate + exitGas;
+
+        let netPnL = 0;
+        if (this.liveTradingMode === 'bsc_twak') {
+            // For BSC: entryPrice already includes entry slippage and entry swap fee (due to onchain fill matching).
+            // So we only subtract exit slippage, exit swap fee, exit gas, and entry gas.
+            netPnL = pos.size * (slippedExitPrice - pos.entryPrice) - exitFee - entryGas;
+        } else {
+            // For simulation/Binance: entryPrice is raw. Apply entry slippage/fee and exit slippage/fee.
+            const entrySlippage = this.slippageBps / 10000;
+            const entryFeeRate = this.takerFeeRate;
+            const slippedEntryPrice = direction === 1
+                ? pos.entryPrice * (1 + entrySlippage)
+                : pos.entryPrice * (1 - entrySlippage);
+            const entryFee = slippedEntryPrice * pos.size * entryFeeRate;
+
+            netPnL = direction * pos.size * (slippedExitPrice - slippedEntryPrice) - entryFee - exitFee;
+        }
+
+        return {
+            pnl: netPnL,
+            pnlPercent: (netPnL / pos.margin) * 100
+        };
+    }
 
     // Logs capped to 400 lines
     public logs: SystemLog[] = [];
@@ -2323,9 +2381,9 @@ class BotEngine {
             sizeUSDT = margin * initialFraction;
         }
 
-        // Enforce minimum order size of 2 USDT
-        if (sizeUSDT < 2) {
-            sizeUSDT = 2;
+        // Enforce minimum order size of 3 USDT
+        if (sizeUSDT < 3) {
+            sizeUSDT = 3;
         }
 
         if (sizeUSDT > this.marginFree) {
@@ -2360,22 +2418,15 @@ class BotEngine {
         // Neutral (1.0) when the operator is off or returned no adjustment.
         const slMultEff = this.quantOperatorEnabled ? dynamicSlMultiplier * this.llmSlTightness : dynamicSlMultiplier;
         const tpMultEff = this.quantOperatorEnabled ? dynamicTpMultiplier * this.llmTpExtension : dynamicTpMultiplier;
-        let sl = currentPrice - atr * slMultEff;
-        const tp = currentPrice + atr * tpMultEff;
+        let sl = 0;
+        let tp = 0;
 
-        // Hard floor: SL must be at least 0.8× ATR away from entry so the LLM
-        // cannot place a stop so tight that normal market noise triggers it.
-        const minSlDist = atr * 0.8;
-        sl = Math.min(sl, currentPrice - minSlDist);
-
-        // Swing low protection for Stop Loss
-        const swingLow = this.calculateSwingPrice(pair, 'LONG', 15);
-        if (swingLow > 0) {
-            sl = Math.min(sl, swingLow - 0.2 * atr);
-        }
-        const maxSlDistance = 2.5 * atr;
-        if (currentPrice - sl > maxSlDistance) {
-            sl = currentPrice - maxSlDistance;
+        if (this.liveTradingMode === 'bsc_twak') {
+            const expectedCost = this.getExpectedRoundtripCost(sizeUSDT);
+            // Log warning if capital allocation is too small (e.g. < $15)
+            if (sizeUSDT < 15) {
+                this.addLog('BOT', `⚠️ [SIZE WARNING] Trade size ($${sizeUSDT.toFixed(2)}) is too small. Fixed BSC gas fees (~$0.40/tx) and swap slippage will consume ~${((expectedCost / sizeUSDT) * 100).toFixed(1)}% of this trade's value. Consider using at least $15 USDT.`, 'warning-line');
+            }
         }
 
         let finalEntryPrice = currentPrice;
@@ -2416,15 +2467,53 @@ class BotEngine {
 
                 // Cache entry price details
                 this.tokenEntryPrices[pair] = { entryPrice: finalEntryPrice, openTime: Date.now() };
-
-                // SL + TP automations (bypassed to save gas, managed in-app)
-                this.addLog('BOT', `🛡️ BSC TWAK: SL $${this.formatPrice(sl)} | TP $${this.formatPrice(tp)} (Managed in-app to save gas)`, 'buy-line');
             } catch (e: any) {
                 this.addLog('BOT', `❌ BSC TWAK Entry failed [${pair}]: ${e.message}`, 'warning-line');
                 return;
             }
         } else {
             finalEntryPrice = this.applySlippage(currentPrice, 'BUY');
+            tokenSize = sizeUSDT / finalEntryPrice;
+        }
+
+        // Recalculate SL/TP targets based on the final execution price
+        sl = finalEntryPrice - atr * slMultEff;
+        tp = finalEntryPrice + atr * tpMultEff;
+
+        if (this.liveTradingMode === 'bsc_twak') {
+            const exitSlippage = this.effectiveSlippageBps / 10000;
+            const exitFeeRate = this.effectiveTakerFeeRate;
+            const exitGas = this.getBscGasFeeUsdt();
+            // Use actual entry overhead (margin paid - tokens received at entryPrice)
+            // instead of estimated entryGas to avoid miscounting sunk costs.
+            const notionalReceived = tokenSize * finalEntryPrice;
+            const entryOverhead = Math.max(0, sizeUSDT - notionalReceived);
+            // Break-even: exit proceeds must cover margin + actual entry overhead
+            // exitProceeds = tokenSize × breakEvenPrice × (1-slip) - tokenSize × breakEvenPrice × fee
+            // = tokenSize × breakEvenPrice × (1 - slip - fee)
+            // Break-even: tokenSize × breakEvenPrice × (1-slip-fee) - exitGas = sizeUSDT
+            const breakEvenPrice = (sizeUSDT + exitGas) / (tokenSize * (1 - exitSlippage - exitFeeRate));
+
+            if (tp < breakEvenPrice) {
+                tp = breakEvenPrice + (atr * 0.5); // Add buffer for net profit
+                this.addLog('BOT', `🛡️ [TP ADJUST] Target TP for ${pair} adjusted to $${this.formatPrice(tp)} to guarantee profitability over break-even price ($${breakEvenPrice.toFixed(4)}) including gas/slippage.`, 'info-line');
+            }
+            this.addLog('BOT', `🛡️ BSC TWAK: SL $${this.formatPrice(sl)} | TP $${this.formatPrice(tp)} (Managed in-app to save gas)`, 'buy-line');
+        }
+
+        // Hard floor: SL must be at least 0.8× ATR away from entry so the LLM
+        // cannot place a stop so tight that normal market noise triggers it.
+        const minSlDist = atr * 0.8;
+        sl = Math.min(sl, finalEntryPrice - minSlDist);
+
+        // Swing low protection for Stop Loss
+        const swingLow = this.calculateSwingPrice(pair, 'LONG', 15);
+        if (swingLow > 0) {
+            sl = Math.min(sl, swingLow - 0.2 * atr);
+        }
+        const maxSlDistance = 2.5 * atr;
+        if (finalEntryPrice - sl > maxSlDistance) {
+            sl = finalEntryPrice - maxSlDistance;
         }
 
         // Entry-side taker fee: charged on full notional.
@@ -2691,8 +2780,14 @@ class BotEngine {
 
             const direction = pos.type === 'LONG' ? 1 : -1;
 
+            // Use pure price-action PnL for open positions.
+            // On BSC, entry slippage+gas is already reflected in the difference between
+            // pos.margin (USDT sent) and pos.size*pos.entryPrice (on-chain notional received).
+            // Estimating gas again here would create phantom losses (e.g. -48% on a $2 trade).
             pos.pnl = direction * pos.size * (currentPrice - pos.entryPrice);
-            pos.pnlPercent = (pos.pnl / pos.margin) * 100;
+            pos.pnlPercent = pos.entryPrice > 0
+                ? (direction * (currentPrice - pos.entryPrice) / pos.entryPrice) * 100
+                : 0;
 
             totalUnrealized += pos.pnl;
             marginSum += pos.margin;
@@ -2712,8 +2807,11 @@ class BotEngine {
                         const oldMargin = pos.margin;
                         const success = await this.executeDcaStep(pos, currentPrice);
                         if (success) {
+                            // Recalculate gross PnL with updated size/entryPrice after DCA fill
                             pos.pnl = direction * pos.size * (currentPrice - pos.entryPrice);
-                            pos.pnlPercent = (pos.pnl / pos.margin) * 100;
+                            pos.pnlPercent = pos.entryPrice > 0
+                                ? (direction * (currentPrice - pos.entryPrice) / pos.entryPrice) * 100
+                                : 0;
                             marginSum += (pos.margin - oldMargin);
                         }
                     }
@@ -2973,12 +3071,17 @@ class BotEngine {
                 }
                 const exitSide: 'BUY' | 'SELL' = 'SELL';
                 const slippedExitPrice = this.applySlippage(exitPriceForCost, exitSide);
-                const exitFee = slippedExitPrice * pos.size * this.takerFeeRate;
+                const gasFee = this.liveTradingMode === 'bsc_twak' ? this.getBscGasFeeUsdt() : 0;
+                const exitFee = slippedExitPrice * pos.size * this.effectiveTakerFeeRate + gasFee;
                 pos.feesPaid = (pos.feesPaid || 0) + exitFee;
                 this.totalFeesPaid += exitFee;
 
-                // Recompute finalPnL net of slippage + exit fee.
-                finalPnL = pos.size * (slippedExitPrice - pos.entryPrice) - exitFee;
+                // Realized PnL = exit proceeds - total capital deployed.
+                // Entry overhead (gas+slip paid on entry) is already baked into the difference
+                // between pos.margin (USDT sent) and pos.size*pos.entryPrice (on-chain notional).
+                // We do NOT add a second estimated entryGas here to avoid double-counting.
+                const entryOverhead = Math.max(0, pos.margin - pos.size * pos.entryPrice);
+                finalPnL = pos.size * (slippedExitPrice - pos.entryPrice) - exitFee - entryOverhead;
 
                 let executeClose = true;
                 if (this.liveTradingMode === 'bsc_twak') {
@@ -3009,7 +3112,13 @@ class BotEngine {
                                 if (isCompetitionActive() && sellRes.txHash) {
                                     recordTrade(sellRes.txHash);
                                 }
-                                this.addLog('BOT', `✅ BSC TWAK closed position automatically. Price: ${this.formatPrice(actualExit)} | TX: ${sellRes.txHash.slice(0, 12)}...`, finalPnL >= 0 ? 'buy-line' : 'sell-line');
+                                // Use actual on-chain proceeds when available for accurate PnL.
+                                if (sellRes.toAmount > 0) {
+                                    finalPnL = sellRes.toAmount - pos.margin;
+                                    this.addLog('BOT', `✅ BSC TWAK closed position automatically [${reason}]. Price: ${this.formatPrice(actualExit)} | Received: ${sellRes.toAmount.toFixed(4)} USDT | PnL: ${finalPnL >= 0 ? '+' : ''}${finalPnL.toFixed(4)} USDT | TX: ${sellRes.txHash.slice(0, 12)}...`, finalPnL >= 0 ? 'buy-line' : 'sell-line');
+                                } else {
+                                    this.addLog('BOT', `✅ BSC TWAK closed position automatically [${reason}]. Price: ${this.formatPrice(actualExit)} (USDT received not reported — PnL estimated) | TX: ${sellRes.txHash.slice(0, 12)}...`, finalPnL >= 0 ? 'buy-line' : 'sell-line');
+                                }
                             }
                         } catch (e: any) {
                             this.addLog('BOT', `⚠️ BSC TWAK auto-closing position failed: ${e.message}. Retrying on next tick.`, 'warning-line');
@@ -3559,8 +3668,15 @@ class BotEngine {
         const rawExit = this.livePrices[pos.symbol] || this.livePrice;
         const exitSide: 'BUY' | 'SELL' = 'SELL';
         const slippedExit = this.applySlippage(rawExit, exitSide);
-        const exitFee = slippedExit * pos.size * this.takerFeeRate;
-        const netPnl = pos.size * (slippedExit - pos.entryPrice) - exitFee;
+        const gasFee = this.liveTradingMode === 'bsc_twak' ? this.getBscGasFeeUsdt() : 0;
+        const exitFee = slippedExit * pos.size * this.effectiveTakerFeeRate + gasFee;
+        // Realized PnL = exit proceeds - total capital deployed.
+        // Entry overhead (actual gas+slip paid on entry swap) is the difference between
+        // pos.margin (USDT sent) and the on-chain notional (pos.size * pos.entryPrice).
+        // Use this instead of re-estimating entry gas, which avoids double-counting.
+        const notionalAtEntry = pos.size * pos.entryPrice;
+        const entryOverhead = Math.max(0, pos.margin - notionalAtEntry);
+        const netPnl = pos.size * (slippedExit - pos.entryPrice) - exitFee - entryOverhead;
         pos.feesPaid = (pos.feesPaid || 0) + exitFee;
         pos.pnl = netPnl; // reflect net pnl in records below
         this.totalFeesPaid += exitFee;
@@ -3597,8 +3713,15 @@ class BotEngine {
                         if (isCompetitionActive() && sellRes.txHash) {
                             recordTrade(sellRes.txHash);
                         }
-                        const priceNote = sellRes.toAmount <= 0 ? ' (price estimated — swap confirmed on-chain)' : '';
-                        this.addLog('BOT', `✅ BSC TWAK closed position. Price: ${this.formatPrice(actualExit)}${priceNote} | TX: ${sellRes.txHash.slice(0, 12)}...`, pos.pnl >= 0 ? 'buy-line' : 'sell-line');
+                        // Use actual on-chain proceeds (toAmount = USDT received) when available.
+                        // This is the most accurate realized PnL: actual USDT received - USDT sent.
+                        if (sellRes.toAmount > 0) {
+                            const actualNetPnl = sellRes.toAmount - pos.margin;
+                            pos.pnl = actualNetPnl;
+                            this.addLog('BOT', `✅ BSC TWAK closed position. Price: ${this.formatPrice(actualExit)} | Received: ${sellRes.toAmount.toFixed(4)} USDT | PnL: ${actualNetPnl >= 0 ? '+' : ''}${actualNetPnl.toFixed(4)} USDT | TX: ${sellRes.txHash.slice(0, 12)}...`, actualNetPnl >= 0 ? 'buy-line' : 'sell-line');
+                        } else {
+                            this.addLog('BOT', `✅ BSC TWAK closed position. Price: ${this.formatPrice(actualExit)} (USDT received not reported — PnL estimated) | TX: ${sellRes.txHash.slice(0, 12)}...`, pos.pnl >= 0 ? 'buy-line' : 'sell-line');
+                        }
                     }
                 } catch (e: any) {
                     this.addLog('BOT', `⚠️ BSC TWAK position close failed: ${e.message}. Retrying manually or automatically.`, 'warning-line');
@@ -3612,9 +3735,13 @@ class BotEngine {
 
         if (!executeClose) return false;
 
+        // Record daily realized PnL (mirrors the auto-close path).
+        // pos.pnl may have been updated above with the actual on-chain toAmount.
+        this.dailyPnL += pos.pnl;
+
         // T3.3 — attribute realized PnL to the model that opened this position.
-        const pnlPctManual = pos.margin > 0 ? (netPnl / pos.margin) * 100 : 0;
-        this.recordModelTrade(pos.modelType || this.modelType, netPnl, pnlPctManual);
+        const pnlPctManual = pos.margin > 0 ? (pos.pnl / pos.margin) * 100 : 0;
+        this.recordModelTrade(pos.modelType || this.modelType, pos.pnl, pnlPctManual);
 
         const timeStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         this.tradeHistory.push({
@@ -4152,15 +4279,20 @@ class BotEngine {
                 macroBias,
                 xSentiment
             }],
-            openPositions: summarizePositions(this.openPositions),
+            openPositions: summarizePositions(this.openPositions, this.livePrices),
             recentTrades: summarizeRecentTrades(this.tradeHistory as any),
             walletBalance: Number(this.balance.toFixed(2)),
-            totalUnrealizedPnl: Number(this.getTotalUnrealizedPnl().toFixed(2)),
+            // GROSS price-action PnL (excludes gas/slippage so LLM won't mistake sunk costs for price crashes)
+            totalUnrealizedPnl: Number(this.openPositions.reduce((sum, p) => {
+                const cp = this.livePrices[p.symbol] || p.entryPrice;
+                return sum + (p.type === 'LONG' ? 1 : -1) * p.size * (cp - p.entryPrice);
+            }, 0).toFixed(2)),
             dailyPnL: Number(this.dailyPnL?.toFixed?.(2) ?? 0),
             maxDailyDrawdownLimitUsd: Number(maxLossUsd.toFixed(2)),
             maxDailyDrawdownPct: Number((this.maxDailyDrawdown * 100).toFixed(2)),
             hoursRemainingInDay: Number(computeHoursRemainingInDay().toFixed(2)),
             currentDrawdownFromPeak: Number(this.getCurrentDrawdownFromPeak().toFixed(4)),
+            bscGasOverheadUsd: this.liveTradingMode === 'bsc_twak' ? Number(this.getBscGasFeeUsdt().toFixed(4)) : undefined,
             ensembleSignal: input.ensembleSignal,
             costs: {
                 takerFeeRate: this.takerFeeRate,
@@ -4701,11 +4833,20 @@ class BotEngine {
                             const lastCheck = this.lastDirectCheckTimeMap[pair] || 0;
                             const timeSinceLastCheck = Date.now() - lastCheck;
 
-                            // Query balance directly if we expect a position, or check once every 2 minutes for other active pairs as self-healing
-                            if (isOpen || timeSinceLastCheck > 120000) {
+                            // Cooldown logic:
+                            // - Open positions: re-check every 30s (not every tick, to avoid RPC spam)
+                            // - Other active pairs: check once every 2 minutes for self-healing
+                            // - Tokens with repeated NETWORK_ERRORs: exponential backoff up to 10 min
+                            const failCount = this.syncFailCounts?.[pair] ?? 0;
+                            const backoffMs = Math.min(failCount * 60_000, 600_000); // up to 10 min
+                            const cooldownMs = isOpen ? Math.max(30_000, backoffMs) : Math.max(120_000, backoffMs);
+
+                            if (timeSinceLastCheck > cooldownMs) {
                                 this.lastDirectCheckTimeMap[pair] = Date.now();
                                 try {
                                     const directBal = await twak.getTokenBalance(tokenSym);
+                                    // Reset failure count on success
+                                    if (this.syncFailCounts) this.syncFailCounts[pair] = 0;
                                     if (directBal.balance > 0) {
                                         portfolio.push({
                                             symbol: tokenSym,
@@ -4716,7 +4857,13 @@ class BotEngine {
                                         this.addLog('SYSTEM', `🔍 [TWAK Sync] Recovered missing token ${tokenSym} balance from direct query: ${directBal.balance}`, 'info-line');
                                     }
                                 } catch (e: any) {
-                                    console.error(`Failed to fetch direct balance for missing active token ${tokenSym}:`, e);
+                                    // Increment failure backoff counter
+                                    if (!this.syncFailCounts) this.syncFailCounts = {};
+                                    this.syncFailCounts[pair] = failCount + 1;
+                                    // Only log every 5 failures to avoid spam
+                                    if ((failCount + 1) % 5 === 1) {
+                                        this.addLog('SYSTEM', `⚠️ [TWAK Sync] ${tokenSym} balance query failed (attempt ${failCount + 1}), backoff ${Math.round(cooldownMs / 1000)}s: ${e.message?.split('\n')[0]}`, 'warning-line');
+                                    }
                                 }
                             }
                         }

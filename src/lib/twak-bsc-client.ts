@@ -479,7 +479,8 @@ export class TWAKBscClient {
         fromSymbol: string,
         slippagePct = 3,
     ): Promise<SwapResult> {
-        const formattedAmount = Number(tokenAmount.toFixed(8)).toString();
+        // Truncate to 8 decimal places using string slicing to avoid floating point issues and prevent rounding up beyond wallet balance
+        const formattedAmount = tokenAmount.toFixed(10).slice(0, -2);
         if (Number(formattedAmount) <= 0) {
             throw new Error(`sellToken: tokenAmount ${tokenAmount} rounds to zero — aborting swap to prevent TWAK VALIDATION_ERROR`);
         }

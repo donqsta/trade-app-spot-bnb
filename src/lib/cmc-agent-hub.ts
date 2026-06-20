@@ -420,5 +420,28 @@ export async function getCMCMarketSnapshot(): Promise<{
     topGainers: string[];
     skillHubSummary?: string; // rich narrative from CMC Skill Hub
 } | null> {
-    return null;
+    try {
+        const metrics = await getGlobalMetrics();
+        const gainers = await getTrendingGainers(5);
+        const topGainers = gainers.map(t => `${t.symbol} (+${t.percentChange24h.toFixed(1)}%)`);
+
+        let skillHubSummary: string | undefined = undefined;
+        try {
+            // Retrieve market summary narrative using the CMC Skill Hub (MCP)
+            skillHubSummary = await executeSkill('market-overview-rich-text', {}).catch(() => undefined);
+        } catch {}
+
+        return {
+            fearAndGreedScore: metrics.fearAndGreed.score,
+            fearAndGreedLabel: metrics.fearAndGreed.classification,
+            marketTrend: metrics.marketTrend,
+            btcDominance: metrics.btcDominance,
+            totalMarketCapUsd: metrics.totalMarketCapUsd,
+            topGainers,
+            skillHubSummary
+        };
+    } catch (e: any) {
+        console.warn('[CMC] Failed to get market snapshot:', e.message || e);
+        return null;
+    }
 }

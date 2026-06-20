@@ -30,7 +30,7 @@ function dataDir(): string {
     // turbopackIgnore: these fs/path calls are runtime-only and must not pull
     // the whole project into the Next.js standalone bundle via NFT tracing.
     try {
-        if (fs.existsSync(/*turbopackIgnore: true*/ '/data') && fs.statSync('/data').isDirectory()) return '/data';
+        if (process.platform !== 'win32' && fs.existsSync(/*turbopackIgnore: true*/ '/data') && fs.statSync('/data').isDirectory()) return '/data';
     } catch { /* not on a unix-y host; ignore */ }
     return path.join(/*turbopackIgnore: true*/ process.cwd(), 'data');
 }

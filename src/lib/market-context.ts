@@ -90,6 +90,7 @@ export interface MarketContext {
     }>;
     recentTrades: RecentTradeSummary;
     walletBalance: number;
+    /** Gross unrealized PnL (price-action only, excludes gas/fee costs). Use this for EXIT decisions. */
     totalUnrealizedPnl: number;
     dailyPnL: number;
     /** Max allowed daily loss in USD (initialCapital * maxDailyDrawdown). */
@@ -100,6 +101,13 @@ export interface MarketContext {
     hoursRemainingInDay: number;
     /** Drawdown from today's peak equity as fraction of peak (0 = at peak). */
     currentDrawdownFromPeak: number;
+    /**
+     * Estimated one-way BSC gas cost in USD per transaction (entry or exit).
+     * Round-trip (entry + exit) costs 2× this amount.
+     * For small positions (margin < 10 USD), this overhead can represent
+     * 20–60% of position value and must NOT be confused with a price loss.
+     */
+    bscGasOverheadUsd?: number;
     /**
      * Latest ensemble prediction for the active pair — injected when the bot
      * is in 'ensemble' mode and open positions exist. Allows the LLM to
@@ -186,17 +194,39 @@ export function summarizeRecentTrades(
 /**
  * Convert internal Position[] -> compact LLM-facing shape (drops noise).
  */
-export function summarizePositions(positions: Position[]) {
-    return positions.map(p => ({
-        symbol: p.symbol,
-        side: p.type,
-        size: Number(p.size.toFixed(6)),
-        entry: Number(p.entryPrice.toFixed(2)),
-        sl: Number(p.sl.toFixed(2)),
-        tp: Number(p.tp.toFixed(2)),
-        pnl: Number(p.pnl.toFixed(2)),
-        pnlPercent: Number(p.pnlPercent.toFixed(2))
-    }));
+export function summarizePositions(positions: Position[], livePrices: Record<string, number> = {}) {
+    return positions.map(p => {
+        const currentPrice = livePrices[p.symbol] || p.entryPrice;
+        const direction = p.type === 'LONG' ? 1 : -1;
+        // Gross PnL = price movement only (excludes gas/slippage overhead)
+        // The LLM should make EXIT decisions based on these gross values.
+        const grossPnl = direction * p.size * (currentPrice - p.entryPrice);
+        const grossPnlPercent = p.entryPrice > 0 ? (direction * (currentPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
+        const marginUsdt = p.margin;
+
+        const formatVal = (val: number) => {
+            if (val === 0) return 0;
+            const abs = Math.abs(val);
+            if (abs < 0.0001) return Number(val.toFixed(10));
+            if (abs < 1) return Number(val.toFixed(8));
+            return Number(val.toFixed(4));
+        };
+
+        return {
+            symbol: p.symbol,
+            side: p.type,
+            marginUsdt: Number(marginUsdt.toFixed(2)),
+            size: Number(p.size.toFixed(6)),
+            entry: formatVal(p.entryPrice),
+            currentPrice: formatVal(currentPrice),
+            sl: formatVal(p.sl),
+            tp: formatVal(p.tp),
+            /** gross price-action PnL in USD (excludes gas/fee) */
+            pnl: Number(grossPnl.toFixed(4)),
+            /** gross price-action PnL% vs entry (excludes gas/fee) */
+            pnlPercent: Number(grossPnlPercent.toFixed(4))
+        };
+    });
 }
 
 /**
@@ -229,6 +259,15 @@ export function computeMacroBias(candles: Candle[]): number {
 export const QUANT_OPERATOR_SYSTEM_PROMPT = `You are the Quant Operator of an AI crypto SPOT trading bot (long-only, no leverage, no shorting).
 Your job: read market context and select strategy regime, timeframe, AI model, and risk/SL/TP scaling for the NEXT cycle.
 SPOT Rules: Positions are always LONG. SHORT signals are SKIPPED. EXIT closes a position.
+
+CRITICAL — BSC Gas Cost Awareness:
+- The context includes "bscGasOverheadUsd" = estimated one-way gas cost per swap in USD.
+- Round-trip (entry + exit) gas = 2 × bscGasOverheadUsd.
+- For positions with marginUsdt < 10 USD, gas overhead can instantly represent 20–60% of position value.
+- The "pnl" and "pnlPercent" on openPositions are GROSS (price-movement only, gas excluded).
+- "totalUnrealizedPnl" is also GROSS price-action PnL.
+- NEVER trigger an EXIT for a position solely because pnlPercent looks large-negative right after entry on a small position. Gas is a sunk cost — only price movement below SL justifies EXIT.
+- Only recommend EXIT if: (a) currentPrice is at or below SL, OR (b) pnlPercent < -10% AND marginUsdt >= 10 USD, OR (c) a strong bearish signal justifies exiting regardless of size.
 
 Respond ONLY with a strict JSON object:
 {
