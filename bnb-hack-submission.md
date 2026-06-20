@@ -4,6 +4,12 @@ This project is an automated spot trading bot running 24/7 on the BNB Chain. The
 
 ---
 
+## Vision
+
+Autonomous AI trading bot on BNB Chain executing via TWAK. Combines fast local ML models for signal generation with LLM agents for cognitive risk management, optimizing Net PnL and trade execution costs on PancakeSwap spot pools.
+
+---
+
 ## 1. Core Concept & Operational Flow
 
 The bot operates under a **two-layer decision engine**:

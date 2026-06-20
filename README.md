@@ -1,75 +1,90 @@
-# AI-QuantBot — BNB Hack AI Trading Agent Edition
+# Orocle Auto Trade: AI-Powered Autonomous Spot Trading Bot on BNB Chain
 
-**Track 1: Autonomous Trading Agents** | BNB Chain × CoinMarketCap × Trust Wallet
+**Autonomous Spot Trading Agent** | BNB Chain × CoinMarketCap × Trust Wallet
 
-> An LLM-powered AI trading agent that reads multi-source market data, makes autonomous trading decisions, and executes real on-chain swaps on BSC via Trust Wallet Agent Kit — all within a strict risk framework.
+> An AI-powered autonomous spot trading bot running 24/7 on the BNB Chain. The bot combines fast local Machine Learning models with a Large Language Model (LLM) acting as a risk manager, executing trades directly on-chain via the **Trust Wallet Agent Kit (TWAK)**.
 
 ---
 
-## Architecture
+## Vision
+Autonomous AI trading bot on BNB Chain executing via TWAK. Combines fast local ML models for signal generation with LLM agents for cognitive risk management, optimizing Net PnL and trade execution costs on PancakeSwap spot pools.
+
+---
+
+## System Architecture
 
 ```
-CMC Agent Hub (Fear&Greed / Global Metrics / Trending)
-        │
-Grok/xAI X Sentiment (per-pair social signals)
-        │
-Binance WebSocket (live prices + candle data for TA)
-        │
-        ▼
+CoinMarketCap Quotes API (30s Polling)
+         │
+         ▼
+Synthetic Candle Builder (OHLCV)
+         │
+         ├──► Local ML Ensemble (KNN + Logistic Regression + Momentum) ──► Buy/Sell Signal
+         │
+         ▼
+Market Context Compiler (Fear & Greed, BTC Dominance, Top Gainers, X Sentiment)
+         │
+         ▼
 ┌──────────────────────────────────────────────┐
-│         LLM Quant Operator                    │
-│  (OpenAI / Anthropic / Gemini / DeepSeek)    │
-│  - Reads: FG score, BTC dominance, sentiment │
-│  - Outputs: regime, riskMultiplier, SL/TP    │
+│         LLM Quant Operator                   │
+│   (DeepSeek / Gemini / OpenAI)               │
+│   - Acts as Cognitive Risk Manager           │
+│   - Adjusts risk multipliers, TP/SL ratios   │
+│   - Decides early exits / approves trades    │
 └──────────────────────────────────────────────┘
-        │
-AI Ensemble Signal (KNN + Logistic + Momentum + ONNX)
-        │
-Competition Guard (25% drawdown kill-switch)
-        │
-        ▼
+         │
+         ├──► Risk Safeguards (Equity Protection, Daily Drawdown, News Blackout)
+         │
+         ▼
 Trust Wallet Agent Kit (TWAK)
   twak swap USDT → TOKEN --chain bsc
-  twak automate add --condition below (stop-loss)
-  twak automate add --condition above (take-profit)
-        │
-        ▼
-BSC Mainnet (PancakeSwap routing, best execution)
+         │
+         ▼
+BSC Mainnet (PancakeSwap DEX spot pools routing)
 ```
 
 ---
 
-## Key Features
+## Core Features
 
-### Signal Stack
-- **Technical Analysis**: RSI, MACD, ATR, Bollinger Bands, Choppiness Index, Trend Intensity
-- **CMC Agent Hub**: Fear & Greed Index, global market cap, BTC dominance, trending gainers
-- **Grok X Sentiment**: Real-time X (Twitter) sentiment score per token via xAI Responses API
-- **LLM Quant Operator**: GPT-4 / Claude reads all signals → outputs JSON strategy regime
+### 1. Two-Layer Decision Engine
+- **Local Machine Learning Layer**: Runs directly on Node.js using historical candlestick data from CoinMarketCap. The bot automatically extracts a set of **12 technical features** from the market (including RSI, MACD Histogram, distance to EMA20/EMA200, EMA20/EMA50 crossover, 3-candle price momentum, ATR-based volatility, Money Flow Index (MFI), OBV change, Bollinger Band spread, ADX trend strength, and volume spikes). Based on these features, the bot trains 3 local models: KNN (K-Nearest Neighbors), Logistic Regression, and Momentum. Each trading pair is trained and predicted independently using its own historical candles (e.g., predicting CAKE/USDT signals without relying directly on BTC price data). An Ensemble model then aggregates the predictions (using weighted voting based on recent win rates) to decide whether to trigger a Buy/Sell signal.
+- **LLM Quant Operator Layer**: Upon receiving a buy signal from the ML layer, the bot gathers structural market context (including wallet balance, active positions, Fear & Greed index from CMC, and X/Twitter sentiment score from the Grok API) and forwards it to the LLM (DeepSeek, Gemini, or OpenAI). While the local ML layer operates independently per token, the LLM Operator acts as a macro risk manager to:
+  - Approve or veto the trade entry if market conditions are unfavorable (utilizing BTC Dominance and overall market trend to check if it is Altcoin season or a risk-off environment).
+  - Scale up or down the risk multiplier.
+  - Dynamically extend the Take Profit (TP) target for high-confidence setups, or tighten the Stop Loss (SL) to protect capital.
+  - Monitor positions and make early exit decisions if it detects a trend reversal or negative news sentiment.
 
-### Execution Layer (BSC via TWAK)
-- **Self-custody**: keys never leave the user's Trust Wallet agent wallet
-- **Autonomous**: bot registers automations and executes without per-tx approval
-- **x402**: CMC data payable per-request via x402 protocol on Base
+### 2. CoinMarketCap Integration as Data Oracle & Market Context Feed
+The system integrates with the **CoinMarketCap REST API & Skill Hub (MCP)** to serve as the price and macro indicator oracle:
+- **Real-Time Price Updates via Quotes API**: For on-chain trading on BSC, relying on Binance WebSockets is often unsuitable for smaller tokens or memecoins only traded on DEXs. The bot polls the CoinMarketCap Quotes API to retrieve the latest swap prices, constructing **synthetic candles** (OHLCV) locally to compute indicators.
+- **Market Sentiment (Fear & Greed Index)**: The bot queries the real-time Fear & Greed index from CoinMarketCap to help the LLM adjust exit targets (e.g., extending TP during greed phases, or tightening SL during extreme fear).
+- **Dominance & Macro Trend**: Key metrics such as BTC/ETH Dominance and the list of top gaining/trending tokens are fed into the LLM context to identify overall market regimes and optimize capital allocation.
 
-### Risk Management (Competition-Grade)
-- Hard **25% drawdown halt** (competition DQ threshold = 30%)
-- Minimum **1 trade/day** tracker for 7-day scoring window
-- Portfolio hourly guard (never let balance drop to $0)
-- Eligible-token allowlist enforced (149 BEP-20 tokens from competition list)
+### 3. Real-World On-Chain Spot Optimization
+We prioritize real-world cost efficiency and slippage control when executing spot trades on-chain:
+- **True Net PnL Calculation (Honest PnL)**: Most trading bots only calculate returns based on theoretical buy and sell prices. On BSC, transaction gas fees, DEX swap fees, and slippage can heavily impact profits. Our system automatically computes the true Net PnL by comparing the actual USDT proceeds received after the sell swap against the initial margin spent, deducting gas fees incurred from both the buy and sell swaps. This ensures the bot operates with absolute cost awareness.
+- **Automatic Break-Even TP Calibration**: To guarantee that every Take Profit execution remains net-profitable after all transaction fees and slippage, the bot recalculates the break-even price immediately after the buy order fills. If the technical target TP is lower than the break-even threshold, the engine automatically adjusts the take profit price to the break-even point plus an additional volatility-based buffer (0.5x ATR).
+
+### 4. Risk Management & Account Safety
+To safeguard funds during autonomous trading, the bot implements several fail-safe guards:
+- **Equity Protection**: The bot automatically halts all trading activities if the total account equity drops below a pre-configured minimum safety threshold to prevent further losses.
+- **Daily Drawdown Limit**: Limits the maximum daily loss to a pre-defined percentage of the total portfolio value. Once hit, the bot closes all open positions and suspends entries until the next day to prevent trading in highly adverse conditions.
+- **News Blackout Periods**: Integrates high-impact macroeconomic event schedules (such as CPI and FOMC releases), auto-pausing new trade entries before and after the announcement times to shield spot assets from extreme price spikes.
 
 ---
 
-## Setup
+## Setup & Configuration
 
 ### 1. Install TWAK CLI
 ```bash
 npm install -g @trustwallet/cli
-twak init --api-key cf354cc7bfd9679a910b1fadef015870e4ab7faa69c06dec3083e2dbffc99dee --api-secret 8d41fdedef55c679dd8fc1211ed4e205a2c39044c56faf74952640ae56f33fd4
+twak init --api-key your_access_id --api-secret your_hmac_secret
 twak wallet create --password <your-password>
 ```
 
-### 2. Configure `.env.local`
+### 2. Configure Environment Variables (`.env.local`)
+Create a `.env.local` file in the root directory:
 ```bash
 # Trust Wallet Agent Kit
 TWAK_WALLET_PASSWORD=your-wallet-password
@@ -78,96 +93,21 @@ TWAK_AGENT_WALLET=0x...   # BSC address from: twak wallet address --chain bsc
 # CoinMarketCap AI Agent Hub
 CMC_API_KEY=your-cmc-pro-api-key
 
-# LLM Brain (recommended: OpenAI GPT-4o)
-LLM_PROVIDER=openai
-LLM_API_KEY=sk-...
-LLM_MODEL=gpt-4o
+# LLM Brain (recommended: DeepSeek or Gemini)
+LLM_PROVIDER=deepseek
+LLM_API_KEY=your-llm-api-key
+LLM_MODEL=deepseek-chat
 
-# Grok/xAI for X sentiment
-XAI_API_KEY=xai-...
-
-# Trading pairs (BSC-eligible from competition list)
-PAIRS=BNBUSDT,CAKEUSDT,LINKUSDT,AAVEUSDT,FLOKIUSDT
+# Trading pairs (BSC spot pairs)
+PAIRS=BNBUSDT,CAKEUSDT,LINKUSDT,FLOKIUSDT
 ```
 
-### 3. Register for Competition (before June 22)
+### 3. Run the Bot
 ```bash
-npx tsx scripts/register-competition.ts
-```
-This will:
-- Run `twak compete register` to call the BSC competition contract
-- Save proof to `competition-registration.json`
-- Print your agent wallet address + tx hash for DoraHacks submission
-
-### 4. Run the Bot
-```bash
-npm run dev       # development
-npm run build && npm start   # production
-```
-
-The bot auto-detects `TWAK_WALLET_PASSWORD` and switches to `bsc_twak` mode.
-
----
-
-## Live Trading Window (June 22–28, 2026)
-
-The bot will:
-1. Use Binance WebSocket for real-time price feeds + TA signals
-2. Query CMC Agent Hub for macro context (Fear & Greed, trending)
-3. Run X sentiment analysis via Grok every 30 minutes
-4. Feed all signals to the LLM Quant Operator
-5. Execute TWAK swaps on BSC when signal confidence ≥ 70%
-6. Place TWAK automate SL/TP orders immediately after entry
-7. Monitor competition drawdown (halt at 25%)
-
----
-
-## Data Flow Diagram
-
-```
-Every 30s:
-  CMC Fear&Greed ──┐
-  Grok Sentiment ──┤──► LLM Quant Operator ──► strategy regime
-  Binance TA    ──┘       (OpenAI/Claude)        riskMultiplier
-
-Every candle close (15m default):
-  AI Ensemble signal ──► evaluateLiveSignal ──► if LONG + competition guard OK
-                                                   ──► TWAK swap (USDT → token)
-                                                   ──► TWAK automate SL + TP
-
-Competition Guard (continuous):
-  Portfolio USD → checkTradeAllowed → halt if drawdown ≥ 25%
-  Trade counter → warn if day has no trade yet
+npm run dev                 # development mode
+npm run build && npm start  # production mode
 ```
 
 ---
 
-## Special Prize Eligibility
-
-| Prize | Status |
-|-------|--------|
-| Best Use of Trust Wallet Agent Kit | TWAK is sole execution layer: swap + automate (SL/TP) + compete register |
-| Best Use of Agent Hub | CMC Fear&Greed + global metrics + trending injected into every LLM call |
-| Best Use of BNB AI Agent SDK | BNB Chain execution via TWAK (BSC PancakeSwap routing) |
-
----
-
-## Submission Checklist
-
-- [ ] Agent wallet registered on BSC (`competition-registration.json`)
-- [ ] GitHub repo: public, reproducible setup
-- [ ] Demo video: CMC data → LLM decision → TWAK BSC execution → BSCScan proof
-- [ ] DoraHacks submission with agent wallet + strategy description
-
----
-
-## Token Pairs (BSC-Eligible)
-
-Default pairs: `BNB, CAKE, LINK, AAVE, FLOKI`
-
-All are in the [149 eligible BEP-20 tokens](https://dorahacks.io/hackathon/bnbhack-twt-cmc/detail) list.
-Configure via `PAIRS` env var — only eligible tokens are accepted.
-
----
-
-Built with: Next.js 16 · TypeScript · Trust Wallet Agent Kit · CoinMarketCap AI Agent Hub · xAI Grok · BNB Chain
+Built with Next.js 16 · TypeScript · Trust Wallet Agent Kit · CoinMarketCap AI Agent Hub · xAI Grok · PancakeSwap · BNB Chain
