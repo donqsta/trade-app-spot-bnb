@@ -20,7 +20,7 @@
 import fs from 'fs';
 import path from 'path';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const FILENAME = 'bot-state.json';
 
 function dataDir(): string {
@@ -52,6 +52,7 @@ export interface PersistedBotState {
     confidenceThreshold: number;
     riskRatio: number;
     orderSizeMultiplier?: number;
+    minOrderSize?: number;
     tpAtrMultiplier: number;
     slAtrMultiplier: number;
     smartOrderAdjustment: boolean;
@@ -122,6 +123,7 @@ export function buildSnapshot(engine: any): PersistedBotState {
         confidenceThreshold: engine.confidenceThreshold,
         riskRatio: engine.riskRatio,
         orderSizeMultiplier: engine.orderSizeMultiplier,
+        minOrderSize: engine.minOrderSize,
         tpAtrMultiplier: engine.tpAtrMultiplier,
         slAtrMultiplier: engine.slAtrMultiplier,
         smartOrderAdjustment: !!engine.smartOrderAdjustment,
@@ -173,11 +175,12 @@ export function buildSnapshot(engine: any): PersistedBotState {
  * deploy time, the disk value won't silently override the env.
  */
 export function applySnapshot(engine: any, snap: PersistedBotState): void {
-    if (!snap || snap.schemaVersion !== SCHEMA_VERSION) return;
+    if (!snap || (snap.schemaVersion !== 2 && snap.schemaVersion !== 3)) return;
 
     engine.confidenceThreshold = snap.confidenceThreshold ?? engine.confidenceThreshold;
     engine.riskRatio = snap.riskRatio ?? engine.riskRatio;
     engine.orderSizeMultiplier = snap.orderSizeMultiplier ?? engine.orderSizeMultiplier;
+    engine.minOrderSize = snap.minOrderSize ?? engine.minOrderSize;
     engine.tpAtrMultiplier = snap.tpAtrMultiplier ?? engine.tpAtrMultiplier;
     engine.slAtrMultiplier = snap.slAtrMultiplier ?? engine.slAtrMultiplier;
     engine.smartOrderAdjustment = !!snap.smartOrderAdjustment;
@@ -239,7 +242,7 @@ export function loadSnapshot(): PersistedBotState | null {
         if (!fs.existsSync(p)) return null;
         const txt = fs.readFileSync(p, 'utf8');
         const obj = JSON.parse(txt);
-        if (!obj || obj.schemaVersion !== SCHEMA_VERSION) return null;
+        if (!obj || (obj.schemaVersion !== 2 && obj.schemaVersion !== 3)) return null;
         return obj as PersistedBotState;
     } catch {
         return null;

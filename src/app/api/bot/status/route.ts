@@ -132,7 +132,10 @@ export async function POST(req: Request) {
             bot.addLog('SYSTEM', `Order size multiplier configuration: x${clamped.toFixed(2)}`, 'info-line');
         }
 
-
+        if (typeof data.minOrderSize === 'number' && data.minOrderSize >= 0) {
+            bot.minOrderSize = data.minOrderSize;
+            bot.addLog('SYSTEM', `Minimum order size configuration: $${bot.minOrderSize.toFixed(2)} USDT`, 'info-line');
+        }
 
         if (typeof data.tpAtrMultiplier === 'number') {
             bot.tpAtrMultiplier = data.tpAtrMultiplier;

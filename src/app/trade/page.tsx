@@ -176,6 +176,7 @@ export default function Home() {
     const [llmApiKeyInput, setLlmApiKeyInput] = useState('');
     const [llmRiskMultiplier, setLlmRiskMultiplier] = useState(1.0);
     const [orderSizeMultiplier, setOrderSizeMultiplier] = useState(1.0);
+    const [minOrderSize, setMinOrderSize] = useState(2.0);
     const [llmSlTightness, setLlmSlTightness] = useState(1.0);
     const [llmTpExtension, setLlmTpExtension] = useState(1.0);
     const [llmTrailingAggressiveness, setLlmTrailingAggressiveness] = useState(1.0);
@@ -356,6 +357,7 @@ export default function Home() {
         if (data.llmApiKey !== undefined) setLlmApiKey(data.llmApiKey);
         if (typeof data.llmRiskMultiplier === 'number') setLlmRiskMultiplier(data.llmRiskMultiplier);
         if (typeof data.orderSizeMultiplier === 'number') setOrderSizeMultiplier(data.orderSizeMultiplier);
+        if (typeof data.minOrderSize === 'number') setMinOrderSize(data.minOrderSize);
         if (typeof data.llmSlTightness === 'number') setLlmSlTightness(data.llmSlTightness);
         if (typeof data.llmTpExtension === 'number') setLlmTpExtension(data.llmTpExtension);
         if (typeof data.llmTrailingAggressiveness === 'number') setLlmTrailingAggressiveness(data.llmTrailingAggressiveness);
@@ -1525,6 +1527,27 @@ export default function Home() {
                                             const val = parseFloat(e.target.value);
                                             setOrderSizeMultiplier(val);
                                             handleParamChange('orderSizeMultiplier', val);
+                                        }}
+                                        className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#226af0]"
+                                    />
+                                </div>
+
+                                {/* Minimum Order Size */}
+                                <div className="flex flex-col gap-1">
+                                    <div className="flex justify-between items-center text-[10px] font-bold uppercase">
+                                        <span className="text-slate-400">Min Order Size</span>
+                                        <span className="text-[#226af0] font-mono">${minOrderSize.toFixed(1)} USDT</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="1.0"
+                                        max="50.0"
+                                        step="0.5"
+                                        value={minOrderSize}
+                                        onChange={(e) => {
+                                            const val = parseFloat(e.target.value);
+                                            setMinOrderSize(val);
+                                            handleParamChange('minOrderSize', val);
                                         }}
                                         className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#226af0]"
                                     />

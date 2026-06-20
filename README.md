@@ -110,4 +110,11 @@ npm run build && npm start  # production mode
 
 ---
 
+## Team Information
+
+**Solo Builder**
+I am a solo builder with over 5 years of hands-on experience in Web3, cryptocurrency, and trading. While I have a solid understanding of software development, I leveraged modern AI-assisted coding tools to accelerate the construction of this codebase. However, I didn't just copy-paste; I have personally configured, refactored, and rigorously tested every single transaction path, calculation, and loop over dozens of live on-chain runs to ensure reliability. I am deeply passionate about the intersection of Crypto and AI, as I truly believe these two technologies combined will reshape the future of the world.
+
+---
+
 Built with Next.js 16 · TypeScript · Trust Wallet Agent Kit · CoinMarketCap AI Agent Hub · xAI Grok · PancakeSwap · BNB Chain

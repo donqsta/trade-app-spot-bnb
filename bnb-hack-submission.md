@@ -49,3 +49,10 @@ To safeguard funds during autonomous trading, the bot implements several fail-sa
 - **Equity Protection**: The bot automatically halts all trading activities if the total account equity drops below a pre-configured minimum safety threshold to prevent further losses.
 - **Daily Drawdown Limit**: Limits the maximum daily loss to a pre-defined percentage of the total portfolio value. Once hit, the bot closes all open positions and suspends entries until the next day to prevent trading in highly adverse conditions.
 - **News Blackout Periods**: Integrates high-impact macroeconomic event schedules (such as CPI and FOMC releases), auto-pausing new trade entries before and after the announcement times to shield spot assets from extreme price spikes.
+
+---
+
+## 5. Team Information
+
+**Solo Builder**
+I am a solo builder with over 5 years of hands-on experience in Web3, cryptocurrency, and trading. While I have a solid understanding of software development, I leveraged modern AI-assisted coding tools to accelerate the construction of this codebase. However, I didn't just copy-paste; I have personally configured, refactored, and rigorously tested every single transaction path, calculation, and loop over dozens of live on-chain runs to ensure reliability. I am deeply passionate about the intersection of Crypto and AI, as I truly believe these two technologies combined will reshape the future of the world.

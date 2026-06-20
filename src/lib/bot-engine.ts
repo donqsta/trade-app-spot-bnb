@@ -280,6 +280,7 @@ class BotEngine {
     public leverage = 1;
     public riskRatio = 0.30; // 30% of per-pair allocation per entry — leaves room for DCA
     public orderSizeMultiplier = 1.0; // No extra multiplier by default. Adjust via UI if needed.
+    public minOrderSize = (typeof process !== 'undefined' && process.env.MIN_ORDER_SIZE) ? parseFloat(process.env.MIN_ORDER_SIZE) : 2.0; // Minimum order size in USDT. Defaults to 2.0.
     public tpAtrMultiplier = 3.5;
     public slAtrMultiplier = 2.5;
     public smartOrderAdjustment = true; // Smart Quant dynamic risk and trailing stop
@@ -2381,9 +2382,9 @@ class BotEngine {
             sizeUSDT = margin * initialFraction;
         }
 
-        // Enforce minimum order size of 3 USDT
-        if (sizeUSDT < 3) {
-            sizeUSDT = 3;
+        // Enforce minimum order size
+        if (sizeUSDT < this.minOrderSize) {
+            sizeUSDT = this.minOrderSize;
         }
 
         if (sizeUSDT > this.marginFree) {
@@ -5118,6 +5119,7 @@ class BotEngine {
             leverage: this.leverage,
             riskRatio: this.riskRatio,
             orderSizeMultiplier: this.orderSizeMultiplier,
+            minOrderSize: this.minOrderSize,
             tpAtrMultiplier: this.tpAtrMultiplier,
             slAtrMultiplier: this.slAtrMultiplier,
             smartOrderAdjustment: this.smartOrderAdjustment,
