@@ -3930,8 +3930,8 @@ class BotEngine {
         // Running 768 Momentum backtests on choppy short timeframes produces
         // near-universal negative expectancy, making optimizer output misleading.
         // Skip it and advise the user to rely on the LLM Quant Operator instead.
-        if (this.modelType === 'ensemble') {
-            this.addLog('SYSTEM', `ℹ️ AUTO-OPTIMIZER: Skipping Grid Search for model ${this.modelType.toUpperCase()} — SL/TP/Risk parameters will be adjusted by LLM Quant Operator based on actual winrate.`, 'info-line');
+        if (this.modelType === 'ensemble' || this.liveTradingMode === 'bsc_twak') {
+            this.addLog('SYSTEM', `ℹ️ AUTO-OPTIMIZER: Skipping Grid Search in ${this.liveTradingMode.toUpperCase()} mode — SL/TP parameters are managed manually and dynamically.`, 'info-line');
             return { success: true, skipped: true };
         }
 
@@ -4081,8 +4081,9 @@ class BotEngine {
                 this.confidenceThreshold = bestParams.confidenceThreshold;
                 this.leverage = bestParams.leverage;
                 this.riskRatio = bestParams.riskRatio;
-                this.tpAtrMultiplier = bestParams.tpAtrMultiplier;
-                this.slAtrMultiplier = bestParams.slAtrMultiplier;
+                // Keep baseline TP/SL ATR multipliers manual under user UI control
+                // this.tpAtrMultiplier = bestParams.tpAtrMultiplier;
+                // this.slAtrMultiplier = bestParams.slAtrMultiplier;
                 this.addLog('SYSTEM', `🛡️ AUTO-OPTIMIZER: Completed Grid Search [${symbol}] (${testedCount} scenarios, ${validResults} valid). Applied optimal config: Spot (no leverage), Risk ${(this.riskRatio * 100).toFixed(1)}%, Confidence: ${this.confidenceThreshold}%, TP ATR: ${this.tpAtrMultiplier}, SL ATR: ${this.slAtrMultiplier}. Expected PnL: ${displayPnL}`, 'buy-line');
             } else {
                 this.addLog('SYSTEM', `🛡️ AUTO-OPTIMIZER: Completed Grid Search [${symbol}] (${testedCount} scenarios, ${validResults} valid). No profitable configuration found on current data. Keeping current parameters.`, 'warning-line');
