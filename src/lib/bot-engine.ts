@@ -358,7 +358,7 @@ class BotEngine {
     public llmRiskMultiplier = 1.0;
     // LLM-driven adaptive SL/TP knobs (applied only when quantOperatorEnabled).
     // 1.0 = neutral (no change vs the rule-based defaults).
-    public llmSlTightness = 1.0;          // scales initial SL distance [0.5, 1.5]
+    public llmSlTightness = 1.0;          // scales initial SL distance [0.5, 2.5]
     public llmTpExtension = 1.0;          // scales initial TP distance [0.7, 2.0]
     public llmTrailingAggressiveness = 1.0; // scales trailing TP tightness [0.5, 2.0]
     public llmLastDecision: QuantOperatorDecision | null = null;
@@ -3540,8 +3540,8 @@ class BotEngine {
 
         // ── Percentage-based SL/TP (replacing ATR) ────────────────────────────
         // SL_ATR env var reused as SL % (e.g. 1.0 → 1%), TP_ATR as TP %
-        const slPct = parseFloat(process.env.SL_ATR ?? '1.0') / 100;
-        const tpPct = parseFloat(process.env.TP_ATR ?? '2.0') / 100;
+        const slPct = (this.slAtrMultiplier ?? 1.0) / 100;
+        const tpPct = (this.tpAtrMultiplier ?? 2.0) / 100;
         const slMultEff = this.quantOperatorEnabled ? (1.0 * this.llmSlTightness) : 1.0;
         const tpMultEff = this.quantOperatorEnabled ? (1.0 * this.llmTpExtension) : 1.0;
 
@@ -3650,8 +3650,8 @@ class BotEngine {
         if (pos) {
             pos.entryPrice = entryPrice;
             pos.openTime = t;
-            const slPct = parseFloat(process.env.SL_ATR ?? '3.0') / 100;
-            const tpPct = parseFloat(process.env.TP_ATR ?? '6.0') / 100;
+            const slPct = (this.slAtrMultiplier ?? 3.0) / 100;
+            const tpPct = (this.tpAtrMultiplier ?? 6.0) / 100;
             pos.sl = entryPrice * (1 - slPct);
             pos.tp = entryPrice * (1 + tpPct);
             pos.originalSl = pos.sl;
@@ -4363,7 +4363,7 @@ class BotEngine {
             riskMultiplier: d.riskMultiplier,
             confidence: typeof d.confidence === 'number' ? d.confidence : 60,
             reasoning: d.reasoning || '',
-            slTightnessMultiplier: clamp(d.slTightnessMultiplier, 0.5, 1.5),
+            slTightnessMultiplier: clamp(d.slTightnessMultiplier, 0.5, 2.5),
             tpExtensionMultiplier: clamp(d.tpExtensionMultiplier, 0.7, 2.0),
             trailingTpAggressiveness: clamp(d.trailingTpAggressiveness, 0.5, 2.0),
             forceExit: d.forceExit === true,
@@ -4985,8 +4985,8 @@ class BotEngine {
                         if (sl === 0 || tp === 0) {
                             const refPrice = entryPrice; // Use historical entry price as the reference!
                             if (refPrice > 0) {
-                                const slPct = parseFloat(process.env.SL_ATR ?? '3.0') / 100;
-                                const tpPct = parseFloat(process.env.TP_ATR ?? '6.0') / 100;
+                                const slPct = (this.slAtrMultiplier ?? 3.0) / 100;
+                                const tpPct = (this.tpAtrMultiplier ?? 6.0) / 100;
                                 if (sl === 0) sl = refPrice * (1 - slPct);
                                 if (tp === 0) tp = refPrice * (1 + tpPct);
                             }

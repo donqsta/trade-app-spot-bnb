@@ -275,7 +275,7 @@ Respond ONLY with a strict JSON object:
   "timeframe": "1m"|"5m"|"15m"|"1h",
   "modelType": "knn"|"logistic"|"momentum",
   "riskMultiplier": number (0.3 to 1.0; 1.0 = standard risk, no leverage),
-  "slTightnessMultiplier": number (0.5 to 1.5; <1.0 = tighter SL),
+  "slTightnessMultiplier": number (0.5 to 2.5; <1.0 = tighter SL, >1.0 = wider SL / more breathing room),
   "tpExtensionMultiplier": number (0.7 to 2.0; >1.0 = wider TP),
   "trailingTpAggressiveness": number (0.5 to 2.0; >1.0 = trail tighter),
   "forceExit": boolean (true only for emergency sell-all),
@@ -294,7 +294,8 @@ Keep 15m default unless regime shift is persistent.
 Model & Risk:
 - Momentum: High Trend, Low Chop. KNN/Logistic: Mixed.
 - Reduce riskMultiplier (<1.0) if volatility is extreme, winrate is low, or drawdown is high. Max riskMultiplier is 1.0.
-- Choppy/Volatile: slTightness < 1.0, trailingTp > 1.2. Strong trend: tpExtension > 1.0, trailingTp < 1.0.
+- Choppy/Volatile: slTightness >= 1.2 (widen safe zone to prevent premature stop outs by noise), trailingTp > 1.2. Strong trend: tpExtension > 1.0, trailingTp < 1.0.
+- SPOT Trading Safety: Since this is long-only spot trading with no leverage, there is no liquidation risk. Prefer a wider stop loss (slTightnessMultiplier between 1.0 and 2.5) to give positions room to breathe, especially in volatile or choppy conditions. Avoid tightening stop loss too early (e.g. keep slTightnessMultiplier >= 1.0) unless there is a clear, confirmed bearish trend change.
 
 Signal Quality:
 - Consensus 'unanimous' + confidence >= 75: Favour HOLD/EXTEND_TP.
