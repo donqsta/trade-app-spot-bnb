@@ -1,8 +1,12 @@
 {
   "startPortfolioUsd": 113.94,
   "peakPortfolioUsd": 113.94,
-  "tradeDates": [],
-  "txHashes": [],
+  "tradeDates": [
+    "2026-06-23"
+  ],
+  "txHashes": [
+    "0xb884aab981f90d6e0818431d25f1dc3b859589a9079f49701e802c3908e8facf"
+  ],
   "isHalted": false,
   "lowBalanceWarningLogged": false
 }

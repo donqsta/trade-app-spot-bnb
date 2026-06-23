@@ -361,6 +361,13 @@ class BotEngine {
     public llmSlTightness = 1.0;          // scales initial SL distance [0.5, 2.5]
     public llmTpExtension = 1.0;          // scales initial TP distance [0.7, 2.0]
     public llmTrailingAggressiveness = 1.0; // scales trailing TP tightness [0.5, 2.0]
+    
+    // Per-pair mappings to prevent LLM decisions for one symbol from leaking to others
+    public llmRiskMultiplierMap: Record<string, number> = {};
+    public llmSlTightnessMap: Record<string, number> = {};
+    public llmTpExtensionMap: Record<string, number> = {};
+    public llmTrailingAggressivenessMap: Record<string, number> = {};
+
     public llmLastDecision: QuantOperatorDecision | null = null;
     public llmLastLatencyMs = 0;
     public gridActiveMap: { [symbol: string]: boolean } = {};
@@ -2356,9 +2363,10 @@ class BotEngine {
 
         // LLM Quant Operator can scale risk up/down (bounded). When LLM is
         // disabled or returned no decision, llmRiskMultiplier stays at 1.0.
-        if (this.quantOperatorEnabled && this.llmRiskMultiplier !== 1.0) {
-            margin = margin * this.llmRiskMultiplier;
-            this.addLog('BOT', `🤖 LLM RISK [${pair}]: Quant Operator applied risk multiplier x${this.llmRiskMultiplier.toFixed(2)} for this order.`, 'info-line');
+        const activeRiskMult = this.llmRiskMultiplierMap[pair] ?? 1.0;
+        if (this.quantOperatorEnabled && activeRiskMult !== 1.0) {
+            margin = margin * activeRiskMult;
+            this.addLog('BOT', `🤖 LLM RISK [${pair}]: Quant Operator applied risk multiplier x${activeRiskMult.toFixed(2)} for this order.`, 'info-line');
         }
 
         // Global order-size multiplier (e.g. 2.0 = double order size).
@@ -2417,8 +2425,10 @@ class BotEngine {
 
         // LLM Quant Operator can tighten/loosen SL and extend/shrink TP (bounded).
         // Neutral (1.0) when the operator is off or returned no adjustment.
-        const slMultEff = this.quantOperatorEnabled ? dynamicSlMultiplier * this.llmSlTightness : dynamicSlMultiplier;
-        const tpMultEff = this.quantOperatorEnabled ? dynamicTpMultiplier * this.llmTpExtension : dynamicTpMultiplier;
+        const activeSlTightness = this.llmSlTightnessMap[pair] ?? 1.0;
+        const activeTpExtension = this.llmTpExtensionMap[pair] ?? 1.0;
+        const slMultEff = this.quantOperatorEnabled ? dynamicSlMultiplier * activeSlTightness : dynamicSlMultiplier;
+        const tpMultEff = this.quantOperatorEnabled ? dynamicTpMultiplier * activeTpExtension : dynamicTpMultiplier;
         let sl = 0;
         let tp = 0;
 
@@ -2633,8 +2643,10 @@ class BotEngine {
         }
 
         // LLM Quant Operator may tighten/loosen SL-TP (neutral when operator off).
-        const slMultEff = this.quantOperatorEnabled ? dynamicSlMultiplier * this.llmSlTightness : dynamicSlMultiplier;
-        const tpMultEff = this.quantOperatorEnabled ? dynamicTpMultiplier * this.llmTpExtension : dynamicTpMultiplier;
+        const activeSlTightness = this.llmSlTightnessMap[pair] ?? 1.0;
+        const activeTpExtension = this.llmTpExtensionMap[pair] ?? 1.0;
+        const slMultEff = this.quantOperatorEnabled ? dynamicSlMultiplier * activeSlTightness : dynamicSlMultiplier;
+        const tpMultEff = this.quantOperatorEnabled ? dynamicTpMultiplier * activeTpExtension : dynamicTpMultiplier;
         let sl = entryPrice - atr * slMultEff;
         const tp = entryPrice + atr * tpMultEff;
 
@@ -2926,8 +2938,9 @@ class BotEngine {
                         this.addLog('BOT', `🎯 ADAPTIVE [${pair}]: Activated Trailing TP (position partial-TP'd 50%). Trailing price peak to optimize exit!`, 'buy-line');
                     }
                     // LLM aggressiveness tightens (>1) or loosens (<1) the trail distance.
+                    const activeAggressiveness = this.llmTrailingAggressivenessMap[pos.symbol] ?? 1.0;
                     const trailMultEff = this.quantOperatorEnabled
-                        ? this.trailingTpMultiplier / this.llmTrailingAggressiveness
+                        ? this.trailingTpMultiplier / activeAggressiveness
                         : this.trailingTpMultiplier;
                     const rawTrailDistance = atr * trailMultEff;
                     const minTrailDistance = targetPriceDiff * 0.4; // breathing room: at least 40% of targetPriceDiff
@@ -3384,8 +3397,10 @@ class BotEngine {
         // Recalculate SL / TP based on current price (lowest point of DCA) to avoid instant stop-outs
         // Retrieve recent ATR
         const atr = this.liveAtrMap[pair] || pos.entryAtr || (pos.entryPrice * 0.02); // fallback
-        const slMultEff = this.quantOperatorEnabled ? this.slAtrMultiplier * this.llmSlTightness : this.slAtrMultiplier;
-        const tpMultEff = this.quantOperatorEnabled ? this.tpAtrMultiplier * this.llmTpExtension : this.tpAtrMultiplier;
+        const activeSlTightness = this.llmSlTightnessMap[pair] ?? 1.0;
+        const activeTpExtension = this.llmTpExtensionMap[pair] ?? 1.0;
+        const slMultEff = this.quantOperatorEnabled ? this.slAtrMultiplier * activeSlTightness : this.slAtrMultiplier;
+        const tpMultEff = this.quantOperatorEnabled ? this.tpAtrMultiplier * activeTpExtension : this.tpAtrMultiplier;
 
         let newSl = currentPrice - atr * slMultEff;
         const newTp = newEntryPrice + atr * tpMultEff;
@@ -3522,8 +3537,9 @@ class BotEngine {
         const targetPairMargin = totalCapital / this.activePairs.length;
         let margin = targetPairMargin * this.riskRatio;
 
-        if (this.quantOperatorEnabled && this.llmRiskMultiplier !== 1.0) {
-            margin *= this.llmRiskMultiplier;
+        const activeRiskMult = this.llmRiskMultiplierMap[pair] ?? 1.0;
+        if (this.quantOperatorEnabled && activeRiskMult !== 1.0) {
+            margin *= activeRiskMult;
         }
 
         // Global order-size multiplier
@@ -3542,8 +3558,10 @@ class BotEngine {
         // SL_ATR env var reused as SL % (e.g. 1.0 → 1%), TP_ATR as TP %
         const slPct = (this.slAtrMultiplier ?? 1.0) / 100;
         const tpPct = (this.tpAtrMultiplier ?? 2.0) / 100;
-        const slMultEff = this.quantOperatorEnabled ? (1.0 * this.llmSlTightness) : 1.0;
-        const tpMultEff = this.quantOperatorEnabled ? (1.0 * this.llmTpExtension) : 1.0;
+        const activeSlTightness = this.llmSlTightnessMap[pair] ?? 1.0;
+        const activeTpExtension = this.llmTpExtensionMap[pair] ?? 1.0;
+        const slMultEff = this.quantOperatorEnabled ? (1.0 * activeSlTightness) : 1.0;
+        const tpMultEff = this.quantOperatorEnabled ? (1.0 * activeTpExtension) : 1.0;
 
         const sl = currentPrice * (1 - slPct * slMultEff);
         const tp = currentPrice * (1 + tpPct * tpMultEff);
@@ -4536,15 +4554,21 @@ class BotEngine {
                 regime = llmDecision.regime;
                 reasoning = llmDecision.reasoning;
                 // Bounded multiplier; LLM cannot YOLO leverage on us.
-                this.llmRiskMultiplier = Math.max(0.3, Math.min(1.5, llmDecision.riskMultiplier || 1.0));
-                // Adaptive SL/TP knobs (already clamped in tryLlmDecision).
-                this.llmSlTightness = llmDecision.slTightnessMultiplier ?? 1.0;
-                this.llmTpExtension = llmDecision.tpExtensionMultiplier ?? 1.0;
-                this.llmTrailingAggressiveness = llmDecision.trailingTpAggressiveness ?? 1.0;
+                const clampedRisk = Math.max(0.3, Math.min(1.5, llmDecision.riskMultiplier || 1.0));
+                this.llmRiskMultiplierMap[pair] = clampedRisk;
+                this.llmSlTightnessMap[pair] = llmDecision.slTightnessMultiplier ?? 1.0;
+                this.llmTpExtensionMap[pair] = llmDecision.tpExtensionMultiplier ?? 1.0;
+                this.llmTrailingAggressivenessMap[pair] = llmDecision.trailingTpAggressiveness ?? 1.0;
+
+                // Sync global variables for backward compatibility and display
+                this.llmRiskMultiplier = clampedRisk;
+                this.llmSlTightness = this.llmSlTightnessMap[pair];
+                this.llmTpExtension = this.llmTpExtensionMap[pair];
+                this.llmTrailingAggressiveness = this.llmTrailingAggressivenessMap[pair];
                 this.llmLastDecision = llmDecision;
 
                 if (this.llmSlTightness !== 1.0 || this.llmTpExtension !== 1.0 || this.llmTrailingAggressiveness !== 1.0) {
-                    this.addLog('SYSTEM', `🧠 [LLM SL/TP] Adjustments: SL x${this.llmSlTightness.toFixed(2)} | TP x${this.llmTpExtension.toFixed(2)} | Trailing x${this.llmTrailingAggressiveness.toFixed(2)}.`, 'info-line');
+                    this.addLog('SYSTEM', `🧠 [LLM SL/TP] Adjustments [${pair}]: SL x${this.llmSlTightness.toFixed(2)} | TP x${this.llmTpExtension.toFixed(2)} | Trailing x${this.llmTrailingAggressiveness.toFixed(2)}.`, 'info-line');
                 }
 
                 // Emergency risk-off: LLM requests closing everything now.
@@ -4660,6 +4684,11 @@ class BotEngine {
                     reasoning = `Strong trend detected (Chop = ${chop.toFixed(1)} < 52, Trend power = ${trend}). Decision: Disable Grid mode, switch to AI Momentum model on 15m timeframe to follow major trend via EMA200 filter.`;
                 }
                 // No LLM, conservative risk default.
+                this.llmRiskMultiplierMap[pair] = 1.0;
+                this.llmSlTightnessMap[pair] = 1.0;
+                this.llmTpExtensionMap[pair] = 1.0;
+                this.llmTrailingAggressivenessMap[pair] = 1.0;
+
                 this.llmRiskMultiplier = 1.0;
                 this.llmSlTightness = 1.0;
                 this.llmTpExtension = 1.0;

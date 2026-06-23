@@ -26,6 +26,26 @@ type TwakCli = { bin: string; prefixArgs: string[] };
 const PAIR_TO_BSC_TOKEN: Record<string, string> = {
     // Native / well-supported by TWAK as symbol
     BNBUSDT:   'BNB',
+    // Ethereum — BEP-20 on BSC (wrapped)
+    ETHUSDT:   '0x2170ed0880ac9a755fd29b2688956bd959f933f8',
+    // Dogecoin — BEP-20 on BSC
+    DOGEUSDT:  '0xba2ae424d960c26247dd6c32edc70b295c744c43',
+    // USD Coin — BEP-20 on BSC
+    USDCUSDT:  '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d',
+    // Ripple — BEP-20 on BSC
+    XRPUSDT:   '0x1d2f0da169ceb9fc7b3144628db156f3f6c60dbe',
+    // TRON — BEP-20 on BSC
+    TRXUSDT:   '0xce7de646e7208a4ef112cb6ed5038fa6cc6b12e3',
+    // Avalanche — BEP-20 on BSC
+    AVAXUSDT:  '0x1ce0c2827e2ef14d5c4f29a091d735a204794041',
+    // Bitcoin Cash — BEP-20 on BSC
+    BCHUSDT:   '0x8ff795a6f4d97e7887c79bea79aba5cc76444adf',
+    // DAI — BEP-20 on BSC
+    DAIUSDT:   '0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3',
+    // Toncoin — BEP-20 on BSC
+    TONUSDT:   '0x76a797a5ba2c17726896976b7b3747bfd1d220f',
+    // Zcash — BEP-20 on BSC
+    ZECUSDT:   '0x1ba42e5193dfa8b03d15dd1b86a3113bbbef8eeb',
     // PancakeSwap CAKE — BEP-20 contract on BSC
     CAKEUSDT:  '0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82',
     // Chainlink LINK — BEP-20 on BSC
@@ -277,12 +297,28 @@ export class TWAKBscClient {
                 throw new Error(`TWAK returned non-JSON output: ${output.slice(0, 200)}`);
             }
         } catch (e: any) {
-            // e.stderr / e.stdout are present when execFile throws (non-zero exit code).
-            // For internal re-throws (JSON parse fail, rate limit, etc.), use capturedStdout/err.
-            const combinedOutput =
-                (e.stdout || capturedStdout) + ' ' +
-                (e.stderr || capturedStderr) + ' ' +
-                (e.message || '');
+            const combinedStdout = (e.stdout || capturedStdout || '').trim();
+            const combinedStderr = (e.stderr || capturedStderr || '').trim();
+            const combinedOutput = combinedStdout + ' ' + combinedStderr + ' ' + (e.message || '');
+
+            // Try to extract JSON from combinedStdout even if the command failed with exit code (e.g. libuv Windows assertion crash)
+            if (combinedStdout) {
+                const firstBrace = combinedStdout.search(/[{[]/);
+                if (firstBrace !== -1) {
+                    const lastBraceChar = combinedStdout[firstBrace] === '{' ? '}' : ']';
+                    const lastBrace = combinedStdout.lastIndexOf(lastBraceChar);
+                    if (lastBrace !== -1 && lastBrace > firstBrace) {
+                        const jsonString = combinedStdout.substring(firstBrace, lastBrace + 1);
+                        try {
+                            const parsed = JSON.parse(jsonString);
+                            console.warn(`[TWAK] CLI command failed with exit code but valid JSON output was found. Recovered successfully.`);
+                            return parsed;
+                        } catch {
+                            // ignore and let it handle standard error below
+                        }
+                    }
+                }
+            }
 
             // ── Key fix: if this is a swap command and the CLI output contains a tx hash,
             // the swap was already submitted on-chain (approval + swap both went through).
@@ -462,7 +498,8 @@ export class TWAKBscClient {
             '--chain', this.chain,
             '--slippage', String(slippagePct),
         ]);
-        const toAmount = parseFloat(result?.toAmount ?? result?.received ?? '0');
+        const rawOutput = result?.output || result?.toAmount || result?.received || '0';
+        const toAmount = parseFloat(rawOutput);
         return {
             txHash: result?.txHash ?? result?.hash ?? '',
             fromAmount: amountUsdt,
@@ -496,7 +533,8 @@ export class TWAKBscClient {
                     '--chain', this.chain,
                     '--slippage', String(slip),
                 ]);
-                const usdtReceived = parseFloat(result?.toAmount ?? result?.received ?? '0');
+                const rawOutput = result?.output || result?.toAmount || result?.received || '0';
+                const usdtReceived = parseFloat(rawOutput);
                 return {
                     txHash: result?.txHash ?? result?.hash ?? '',
                     fromAmount: tokenAmount,
