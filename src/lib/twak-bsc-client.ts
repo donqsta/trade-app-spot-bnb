@@ -189,10 +189,17 @@ export class TWAKBscClient {
     }
 
     private static twakEnv(): NodeJS.ProcessEnv {
+        const existingNodeOptions = process.env.NODE_OPTIONS || '';
+        const nodeOptions = [
+            existingNodeOptions,
+            '--experimental-require-module'
+        ].filter(Boolean).join(' ');
+
         return {
             ...process.env,
             NODE_NO_WARNINGS: '1',
             NPM_CONFIG_LOGLEVEL: 'error',
+            NODE_OPTIONS: nodeOptions,
         };
     }
 
