@@ -170,7 +170,7 @@ export default function Home() {
     const [twakAgentWallet, setTwakAgentWallet] = useState('');
     const [twakConfigured, setTwakConfigured] = useState(false);
     // LLM "AI Brain" config (Phase 1). Provider 'off' = rule-based fallback.
-    const [llmProvider, setLlmProvider] = useState<'off' | 'openai' | 'anthropic' | 'gemini' | 'deepseek'>('off');
+    const [llmProvider, setLlmProvider] = useState<'off' | 'local_ai' | 'openai' | 'anthropic' | 'gemini' | 'deepseek'>('off');
     const [llmModel, setLlmModel] = useState('');
     const [llmApiKey, setLlmApiKey] = useState('');
     const [llmApiKeyInput, setLlmApiKeyInput] = useState('');
@@ -1369,7 +1369,7 @@ export default function Home() {
                                 {/* ===== LLM BRAIN CONFIG (Phase 1) ===== */}
                                 <div className="flex flex-col gap-2 mt-2 border-t border-white/5 pt-2">
                                     <span className="text-[9px] font-black text-[#a29bfe] uppercase tracking-wider">LLM AI Brain</span>
-                                    <div className="grid grid-cols-2 gap-1.5">
+                                    <div className="flex flex-col gap-1.5">
                                         <select
                                             value={llmProvider}
                                             onChange={(e) => {
@@ -1381,59 +1381,19 @@ export default function Home() {
                                                     body: JSON.stringify({ llmProvider: p })
                                                 });
                                             }}
-                                            className="bg-white/5 border border-white/5 text-slate-200 text-[10px] font-bold px-1.5 py-1 rounded outline-none focus:border-[#a29bfe]"
+                                            className="w-full bg-white/5 border border-white/5 text-slate-200 text-[10px] font-bold px-1.5 py-1 rounded outline-none focus:border-[#a29bfe]"
                                         >
-                                            <option value="off">OFF (Rule)</option>
-                                            <option value="openai">OpenAI</option>
-                                            <option value="anthropic">Anthropic</option>
-                                            <option value="gemini">Gemini</option>
-                                            <option value="deepseek">DeepSeek</option>
+                                            <option value="off">OFF (Rule-based Baseline)</option>
+                                            <option value="local_ai">ON (Local Quant AI Brain) 🧠</option>
                                         </select>
-                                        <input
-                                            type="text"
-                                            placeholder="Model (e.g. gpt-4o-mini)"
-                                            value={llmModel}
-                                            onChange={(e) => setLlmModel(e.target.value)}
-                                            onBlur={() => fetch('/api/bot/status', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ llmModel })
-                                            })}
-                                            className="bg-white/5 border border-white/5 text-slate-200 text-[10px] font-mono px-1.5 py-1 rounded outline-none focus:border-[#a29bfe]"
-                                        />
                                     </div>
-                                    {llmProvider !== 'off' && (
-                                        <div className="flex gap-1">
-                                            <input
-                                                type="password"
-                                                placeholder={llmApiKey || 'Paste API key...'}
-                                                value={llmApiKeyInput}
-                                                onChange={(e) => setLlmApiKeyInput(e.target.value)}
-                                                className="flex-1 bg-white/5 border border-white/5 text-slate-200 text-[10px] font-mono px-1.5 py-1 rounded outline-none focus:border-[#a29bfe]"
-                                            />
-                                            <button
-                                                onClick={async () => {
-                                                    if (!llmApiKeyInput) return;
-                                                    await fetch('/api/bot/status', {
-                                                        method: 'POST',
-                                                        headers: { 'Content-Type': 'application/json' },
-                                                        body: JSON.stringify({ llmApiKey: llmApiKeyInput })
-                                                    });
-                                                    setLlmApiKeyInput('');
-                                                }}
-                                                className="bg-[#a29bfe]/20 hover:bg-[#a29bfe]/40 border border-[#a29bfe]/30 text-[#a29bfe] text-[10px] font-bold px-2 rounded"
-                                            >
-                                                Save
-                                            </button>
-                                        </div>
-                                    )}
-                                    {llmProvider !== 'off' && (
+                                    {llmProvider === 'local_ai' && (
                                         <div className="flex flex-col gap-1 bg-[#a29bfe]/5 border border-[#a29bfe]/15 rounded-lg p-1.5">
                                             <div className="flex items-center justify-between">
                                                 <span className="text-[9px] text-slate-400">Risk x{llmRiskMultiplier.toFixed(2)}</span>
                                                 <span className="text-[9px] text-slate-400 font-mono">{llmLastLatency}ms</span>
-                                                <span className={`text-[9px] font-bold ${llmApiKey ? 'text-[#00c076]' : 'text-[#ff9500]'}`}>
-                                                    {llmApiKey ? ' Ready' : ' Key missing'}
+                                                <span className="text-[9px] font-bold text-[#00c076]">
+                                                    🧠 Offline Brain Active
                                                 </span>
                                             </div>
                                             <div className="flex items-center justify-between border-t border-[#a29bfe]/10 pt-1">

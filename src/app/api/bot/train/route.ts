@@ -15,7 +15,9 @@ export async function POST(req: Request) {
         }
 
         // Concurrently train models for all 3 active pairs in background
-        const results = bot.activePairs.map(pair => bot.trainModel(modelType, pair));
+        const results = await Promise.all(
+            bot.activePairs.map(pair => bot.trainModel(modelType, pair))
+        );
         
         // Find the result for the currently focused pair to return to UI stats
         const currentIdx = bot.activePairs.indexOf(bot.currentPair);

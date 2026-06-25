@@ -4,7 +4,7 @@
  * and handles background trading decisions 24/7 in Node.js memory.
  */
 
-import { AIEngine, LabeledDataPoint, LogisticRegressionModel } from './ai-engine';
+import { AIEngine, LabeledDataPoint, LogisticRegressionModel, MetaModel } from './ai-engine';
 import { TWAKBscClient, pairToBscToken } from './twak-bsc-client';
 import { getCMCMarketSnapshot, getTokenQuotes } from './cmc-agent-hub';
 import { CmcPriceFeed, getCmcPriceFeed, stopCmcPriceFeed, type CmcPriceUpdate } from './cmc-price-feed';
@@ -84,6 +84,7 @@ export interface Position {
     /** Price of the last initial entry or DCA fill — next step requires drop from here. */
     dcaLastFillPrice?: number;
     lastDcaAttemptTime?: number;
+    entryChop?: number;
 }
 
 export interface TradeLog {
@@ -175,6 +176,7 @@ class BotEngine {
     // votes weighted by each model's recent realized winrate.
     public modelType: 'knn' | 'logistic' | 'momentum' | 'ensemble' = 'knn';
     public trainedModelMap: { [symbol: string]: LogisticRegressionModel | null } = {};
+    public metaModelMap: { [symbol: string]: MetaModel | null } = {};
     public trainingFeaturesMap: { [symbol: string]: LabeledDataPoint[] } = {};
     // Logistic in-sample accuracy per pair (0.0–1.0). Used by predictEnsemble to
     // down-weight the Logistic vote when it performs below random (< 0.50).
@@ -334,8 +336,8 @@ class BotEngine {
     // Last N closed trades per model, used to compute rolling winrate /
     // expectancy. If a model degrades materially (winrate < 40% AND
     // expectancy < 0 over the last 50 trades), we auto-fallback to momentum.
-    public modelRecentTrades: { [model: string]: { pnl: number; pct: number; at: number }[] } = {
-        knn: [], logistic: [], momentum: []
+    public modelRecentTrades: { [model: string]: { pnl: number; pct: number; at: number; entryChop?: number }[] } = {
+        knn: [], logistic: [], momentum: [], ensemble: []
     };
     private alphaDecayWatchdogActive = false;
     private lastFallbackAt = 0;
@@ -389,9 +391,15 @@ class BotEngine {
     // Made public so the persistence layer (Phase 5) can snapshot/restore them.
     public dailyPnL = 0;
     public dailyPnLResetDate = '';
+    public dailyEquityPeak = 0;
     public maxDailyDrawdown = 0.05; // 5% max daily loss
-    /** Highest equity seen today (for drawdown-from-peak metric). */
-    private dailyEquityPeak = 0;
+    public dailyProfitTarget = 0.05;
+    public stopOnTargetMet = true;
+    
+    public getDailyProfitTargetUsd(): number {
+        const cap = (this.liveTradingMode !== 'simulated' && this.balance > 0) ? this.balance : this.initialCapital;
+        return Math.max(0, cap * this.dailyProfitTarget);
+    }
     public lastClosedTime: { [symbol: string]: number } = {};
 
     // ============================================================
@@ -673,16 +681,22 @@ class BotEngine {
     // T3.3 — Alpha-decay monitor
     // ====================================================================
     /** Record realized PnL of a closed trade attributed to a model. */
-    public recordModelTrade(model: 'knn' | 'logistic' | 'momentum' | 'ensemble', pnl: number, pct: number): void {
+    public recordModelTrade(model: 'knn' | 'logistic' | 'momentum' | 'ensemble', pnl: number, pct: number, entryChop?: number): void {
         if (!this.modelRecentTrades[model]) this.modelRecentTrades[model] = [];
         const arr = this.modelRecentTrades[model];
-        arr.push({ pnl, pct, at: Date.now() });
+        arr.push({ pnl, pct, at: Date.now(), entryChop });
         while (arr.length > 100) arr.shift(); // keep last 100 trades per model
     }
 
     /** Compute rolling stats over the last N trades for one model. */
-    public computeModelHealth(model: 'knn' | 'logistic' | 'momentum' | 'ensemble', windowN = 50) {
-        const arr = (this.modelRecentTrades[model] || []).slice(-windowN);
+    public computeModelHealth(model: 'knn' | 'logistic' | 'momentum' | 'ensemble', windowN = 50, regime?: 'trending' | 'sideway') {
+        let arr = this.modelRecentTrades[model] || [];
+        if (regime === 'trending') {
+            arr = arr.filter(t => t.entryChop === undefined || t.entryChop < 50);
+        } else if (regime === 'sideway') {
+            arr = arr.filter(t => t.entryChop !== undefined && t.entryChop >= 50);
+        }
+        arr = arr.slice(-windowN);
         const n = arr.length;
         if (n === 0) return { n, winrate: 0, avgPnl: 0, expectancy: 0, profitFactor: 1 };
         const wins = arr.filter(t => t.pnl > 0);
@@ -735,7 +749,7 @@ class BotEngine {
      * T3.2 — rolling retrain. Called once per hour by the constructor's
      * setInterval. Handles KNN / Logistic / Ensemble in-process models.
      */
-    private rollingRetrainAll(): void {
+    private async rollingRetrainAll(): Promise<void> {
         if (this.liveTradingMode === 'bsc_twak') {
             return;
         }
@@ -747,7 +761,7 @@ class BotEngine {
                 const candles = this.historicalCandlesMap[pair];
                 if (!candles || candles.length < 250) continue;
                 try {
-                    const res = this.trainModel(this.modelType, pair);
+                    const res = await this.trainModel(this.modelType, pair);
                     if (res?.success) {
                         this.addLog('AI', `🔁 Rolling retrain [${pair}] model ${this.modelType.toUpperCase()} complete — ${res.accuracy ?? 'N/A'}.`, 'system-line');
                     }
@@ -1385,7 +1399,7 @@ class BotEngine {
     /**
      * Train ML Model on server
      */
-    public trainModel(modelType: 'knn' | 'logistic' | 'momentum' | 'ensemble', pair?: string) {
+    public async trainModel(modelType: 'knn' | 'logistic' | 'momentum' | 'ensemble', pair?: string) {
         const symbol = pair || this.currentPair;
         const candles = this.historicalCandlesMap[symbol] || [];
         if (candles.length < 250) {
@@ -1417,6 +1431,15 @@ class BotEngine {
             ? this.ai.labelDatasetTripleBarrier(dataset, highs, lows, closes,
                 horizon, symmetricMultiplier, symmetricMultiplier, true, 0.5)
             : this.ai.labelDataset(dataset, closes, 5, this.getLabelThreshold(this.currentTimeframe), true, 0.5);
+
+        // Assign chop to labeledData points for regime classification
+        labeledData.forEach(d => {
+            const dIndex = d.index ?? 0;
+            const sliceStart = Math.max(0, dIndex - 29);
+            const subCandles = candles.slice(sliceStart, dIndex + 1);
+            d.chop = subCandles.length >= 30 ? this.calculateChoppinessIndex(subCandles) : 55;
+        });
+
         const numBuy = labeledData.filter(d => d.label === 1).length;
         const numSell = labeledData.filter(d => d.label === -1).length;
         const numHold = labeledData.filter(d => d.label === 0).length;
@@ -1465,6 +1488,79 @@ class BotEngine {
             accuracy = 'Dynamic';
         }
 
+        // ---- Train Meta-Labeling Model (Model cấp 2) ----
+        const metaTrainingData: LabeledDataPoint[] = [];
+        for (let i = 0; i < labeledData.length; i++) {
+            const d = labeledData[i];
+            let basePredSignal = 0;
+            const dIndex = d.index ?? 0;
+
+            if (modelType === 'logistic') {
+                const pred = this.ai.predictLogisticRegression(this.trainedModelMap[symbol], d.features, this.confidenceThreshold);
+                basePredSignal = pred.signal;
+            } else if (modelType === 'knn') {
+                const sliceStart = Math.max(0, dIndex - 20);
+                const subCloses = closes.slice(sliceStart, dIndex + 1);
+                const subHighs = highs.slice(sliceStart, dIndex + 1);
+                const subLows = lows.slice(sliceStart, dIndex + 1);
+                const tempCandles = subCloses.map((_, idx) => ({
+                    time: 0, open: 0,
+                    high: subHighs[idx],
+                    low: subLows[idx],
+                    close: subCloses[idx],
+                    volume: 0
+                }));
+                const localChop = tempCandles.length >= 30 ? this.calculateChoppinessIndex(tempCandles) : 55;
+                const pred = this.ai.predictKNN(labeledData, d.features, localChop);
+                basePredSignal = pred.signal;
+            } else if (modelType === 'ensemble') {
+                const sliceStart = Math.max(0, dIndex - 20);
+                const subCloses = closes.slice(sliceStart, dIndex + 1);
+                const subHighs = highs.slice(sliceStart, dIndex + 1);
+                const subLows = lows.slice(sliceStart, dIndex + 1);
+                const subVolumes = volumes.slice(sliceStart, dIndex + 1);
+                const pred = this.predictEnsemble(symbol, subCloses, subHighs, subLows, subVolumes, d.features);
+                basePredSignal = pred.signal;
+            } else { // momentum
+                const sliceStart = Math.max(0, dIndex - 20);
+                const subCloses = closes.slice(sliceStart, dIndex + 1);
+                const subHighs = highs.slice(sliceStart, dIndex + 1);
+                const subLows = lows.slice(sliceStart, dIndex + 1);
+                const subVolumes = volumes.slice(sliceStart, dIndex + 1);
+                const tempCandles = subCloses.map((_, idx) => ({
+                    time: 0, open: 0,
+                    high: subHighs[idx],
+                    low: subLows[idx],
+                    close: subCloses[idx],
+                    volume: subVolumes[idx]
+                }));
+                const localChop = tempCandles.length >= 30 ? this.calculateChoppinessIndex(tempCandles) : 55;
+                const pred = this.ai.predictMomentumStrategy(subCloses, subHighs, subLows, subVolumes, localChop);
+                basePredSignal = pred.signal;
+            }
+
+            if (basePredSignal !== 0) {
+                const isWin = basePredSignal === d.label ? 1 : 0;
+                metaTrainingData.push({
+                    features: d.features,
+                    label: isWin,
+                    price: d.price,
+                    weight: d.weight ?? 1.0
+                });
+            }
+        }
+
+        if (metaTrainingData.length >= 10) {
+            const metaModel = this.ai.trainMetaModel(metaTrainingData);
+            this.metaModelMap[symbol] = metaModel;
+            const metaWins = metaTrainingData.filter(d => d.label === 1).length;
+            const metaWinrate = (metaWins / metaTrainingData.length) * 100;
+            this.addLog('AI', `🛡️ Meta-Labeling [${symbol}] trained: ${metaTrainingData.length} signals (winrate gốc ${metaWinrate.toFixed(1)}%).`, 'buy-line');
+        } else {
+            this.metaModelMap[symbol] = null;
+            this.addLog('AI', `⚠️ Meta-Labeling [${symbol}] skipped: không đủ dữ liệu giao dịch mẫu (${metaTrainingData.length} < 10).`, 'warning-line');
+        }
+
         this.aiBrainTrainedMap[symbol] = true;
         return { success: true, accuracy, numBuy, numSell, numHold };
     }
@@ -1483,14 +1579,14 @@ class BotEngine {
      *
      * If no model produces a non-zero signal the ensemble returns HOLD.
      */
-    public async predictEnsemble(
+    public predictEnsemble(
         pair: string,
         closes: number[],
         highs: number[],
         lows: number[],
         volumes: number[],
         currentFeatures: number[]
-    ): Promise<{ signal: number; confidence: number; breakdown: string; ensembleCtx: EnsembleSignalContext }> {
+    ): { signal: number; confidence: number; breakdown: string; ensembleCtx: EnsembleSignalContext } {
         const knn = this.ai.predictKNN(this.trainingFeaturesMap[pair] || [], currentFeatures);
         const logistic = this.ai.predictLogisticRegression(this.trainedModelMap[pair] || null, currentFeatures, this.confidenceThreshold);
         const momentum = this.ai.predictMomentumStrategy(closes, highs, lows, volumes);
@@ -1914,12 +2010,26 @@ class BotEngine {
                     pred = this.ai.predictKNN(trainingFeatures, dataPoint.features);
                 } else if (this.modelType === 'logistic') {
                     pred = this.ai.predictLogisticRegression(trainedModel, dataPoint.features, confidenceThreshold);
+                } else if (this.modelType === 'ensemble') {
+                    const ensCloses = closes.slice(0, candleIndex + 1);
+                    const ensHighs = highs.slice(0, candleIndex + 1);
+                    const ensLows = lows.slice(0, candleIndex + 1);
+                    const ensVolumes = volumes.slice(0, candleIndex + 1);
+                    const ens = this.predictEnsemble(symbol, ensCloses, ensHighs, ensLows, ensVolumes, dataPoint.features);
+                    pred = { signal: ens.signal, confidence: ens.confidence };
                 } else {
                     // Issue 3: Pass volumes to Momentum Strategy
                     pred = this.ai.predictMomentumStrategy(closes.slice(0, candleIndex + 1), highs.slice(0, candleIndex + 1), lows.slice(0, candleIndex + 1), volumes.slice(0, candleIndex + 1));
                 }
 
                 if (pred.signal === 1 && pred.confidence >= confidenceThreshold) {
+                    // Filter signals using Meta-Model if a metaModel exists for the pair
+                    const metaModel = this.metaModelMap[symbol];
+                    if (metaModel) {
+                        const prob = this.ai.predictMetaModel(metaModel, dataPoint.features);
+                        if (prob < 0.52) continue;
+                    }
+
                     const direction = 1; // strictly LONG
                     let dynamicTpMultiplier = tpMult;
                     let dynamicSlMultiplier = slMult;
@@ -1962,7 +2072,21 @@ class BotEngine {
                     backtestBalance -= entryFee; // entry fee paid out of cash
 
                     let sl = direction === 1 ? (entryFillPrice - atr * dynamicSlMultiplier) : (entryFillPrice + atr * dynamicSlMultiplier);
-                    const tp = direction === 1 ? (entryFillPrice + atr * dynamicTpMultiplier) : (entryFillPrice - atr * dynamicTpMultiplier);
+                    let tp = direction === 1 ? (entryFillPrice + atr * dynamicTpMultiplier) : (entryFillPrice - atr * dynamicTpMultiplier);
+
+                    // Swing High-based Take Profit calculation
+                    if (direction === 1) {
+                        const startLookback = Math.max(0, candleIndex - 14);
+                        const recentHighs = highs.slice(startLookback, candleIndex + 1);
+                        const swingHigh = Math.max(...recentHighs);
+                        if (swingHigh > 0) {
+                            const proposedTp = swingHigh - 0.2 * atr;
+                            const minTp = entryFillPrice + 1.0 * atr;
+                            const activeTpExtension = this.llmTpExtensionMap[symbol] ?? 1.0;
+                            const maxTp = entryFillPrice + 3.5 * atr * activeTpExtension;
+                            tp = Math.max(minTp, Math.min(proposedTp, maxTp));
+                        }
+                    }
 
                     // Swing high/low protection for Stop Loss in Backtest
                     if (direction === 1) {
@@ -2199,7 +2323,7 @@ class BotEngine {
             pred = this.ai.predictLogisticRegression(this.trainedModelMap[pair], currentPoint.features, this.confidenceThreshold);
         } else if (this.modelType === 'ensemble') {
             // T3.6 — parallel 3-model weighted ensemble.
-            const ens = await this.predictEnsemble(pair, closes, highs, lows, volumes, currentPoint.features);
+            const ens = this.predictEnsemble(pair, closes, highs, lows, volumes, currentPoint.features);
             pred = { signal: ens.signal, confidence: ens.confidence };
             this.lastEnsembleSignalMap[pair] = ens.ensembleCtx;
             this.addLog('AI', `🧠 ENSEMBLE [${pair}] ${ens.breakdown} → ${pred.signal === 1 ? 'LONG' : pred.signal === -1 ? 'SHORT' : 'HOLD'} (${pred.confidence}%)`, 'info-line');
@@ -2249,6 +2373,18 @@ class BotEngine {
                     ? ` (adaptive threshold: ${effectiveThreshold}%)` : '';
                 this.addLog('BOT', `⚠️ Skipping signal [${pair}]: Confidence (${pred.confidence}%) does not meet minimum requirement (${effectiveThreshold}%${adaptNote}).`, 'warning-line');
                 return;
+            }
+
+            // Filter signals using Meta-Model if a metaModel exists for the pair
+            const metaModel = this.metaModelMap[pair];
+            if (metaModel) {
+                const prob = this.ai.predictMetaModel(metaModel, currentPoint.features);
+                if (prob < 0.52) {
+                    this.addLog('AI', `🛡️ MetaModel FILTER [${pair}]: Signal skipped. Victory probability ${Number((prob * 100).toFixed(1))}% < 52%.`, 'warning-line');
+                    return;
+                } else {
+                    this.addLog('AI', `🛡️ MetaModel FILTER [${pair}]: Signal approved. Victory probability ${Number((prob * 100).toFixed(1))}% >= 52%.`, 'buy-line');
+                }
             }
         } else {
             // Signal is HOLD, so no order is opened
@@ -2491,6 +2627,16 @@ class BotEngine {
         sl = finalEntryPrice - atr * slMultEff;
         tp = finalEntryPrice + atr * tpMultEff;
 
+        // Swing High-based Take Profit calculation
+        const swingHigh = this.calculateSwingPrice(pair, 'SHORT', 15);
+        if (swingHigh > 0) {
+            const proposedTp = swingHigh - 0.2 * atr;
+            const minTp = finalEntryPrice + 1.0 * atr;
+            const activeTpExtension = this.llmTpExtensionMap[pair] ?? 1.0;
+            const maxTp = finalEntryPrice + 3.5 * atr * activeTpExtension;
+            tp = Math.max(minTp, Math.min(proposedTp, maxTp));
+        }
+
         if (this.liveTradingMode === 'bsc_twak') {
             const exitSlippage = this.effectiveSlippageBps / 10000;
             const exitFeeRate = this.effectiveTakerFeeRate;
@@ -2570,6 +2716,7 @@ class BotEngine {
             dcaTotalMargin: this.dcaEnabled ? margin : undefined,
             dcaPriceDropPct: posDcaPriceDropPct,
             dcaLastFillPrice: dcaLastFillPrice,
+            entryChop: localChop,
         };
 
         if (this.liveTradingMode === 'simulated') {
@@ -2642,17 +2789,32 @@ class BotEngine {
             dynamicSlMultiplier = dynamicSlMultiplier * 1.2;
         }
 
+        const slippedEntryPrice = this.liveTradingMode === 'simulated'
+            ? this.applySlippage(entryPrice, 'BUY')
+            : entryPrice;
+        const entryFee = slippedEntryPrice * sizeToken * this.takerFeeRate;
+
         // LLM Quant Operator may tighten/loosen SL-TP (neutral when operator off).
         const activeSlTightness = this.llmSlTightnessMap[pair] ?? 1.0;
         const activeTpExtension = this.llmTpExtensionMap[pair] ?? 1.0;
         const slMultEff = this.quantOperatorEnabled ? dynamicSlMultiplier * activeSlTightness : dynamicSlMultiplier;
         const tpMultEff = this.quantOperatorEnabled ? dynamicTpMultiplier * activeTpExtension : dynamicTpMultiplier;
-        let sl = entryPrice - atr * slMultEff;
-        const tp = entryPrice + atr * tpMultEff;
+        let sl = slippedEntryPrice - atr * slMultEff;
+        let tp = slippedEntryPrice + atr * tpMultEff;
+
+        // Swing High-based Take Profit calculation
+        const swingHigh = this.calculateSwingPrice(pair, 'SHORT', 15);
+        if (swingHigh > 0) {
+            const proposedTp = swingHigh - 0.2 * atr;
+            const minTp = slippedEntryPrice + 1.0 * atr;
+            const activeTpExtensionVal = this.llmTpExtensionMap[pair] ?? 1.0;
+            const maxTp = slippedEntryPrice + 3.5 * atr * activeTpExtensionVal;
+            tp = Math.max(minTp, Math.min(proposedTp, maxTp));
+        }
 
         // Hard floor: SL must be at least 0.8× ATR from entry.
         const minSlDistGrid = atr * 0.8;
-        sl = Math.min(sl, entryPrice - minSlDistGrid);
+        sl = Math.min(sl, slippedEntryPrice - minSlDistGrid);
 
         // Swing high/low protection for Stop Loss
         const swingLow = this.calculateSwingPrice(pair, 'LONG', 15);
@@ -2660,19 +2822,14 @@ class BotEngine {
             sl = Math.min(sl, swingLow - 0.2 * atr);
         }
         const maxSlDistance = 2.5 * atr;
-        if (entryPrice - sl > maxSlDistance) {
-            sl = entryPrice - maxSlDistance;
+        if (slippedEntryPrice - sl > maxSlDistance) {
+            sl = slippedEntryPrice - maxSlDistance;
         }
         const liqPrice = 0; // Spot has no liquidation
 
         let finalEntryPrice = entryPrice;
         let binanceOrderId: string | undefined;
         let slOrderId: string | undefined;
-
-        const slippedEntryPrice = this.liveTradingMode === 'simulated'
-            ? this.applySlippage(finalEntryPrice, 'BUY')
-            : finalEntryPrice;
-        const entryFee = slippedEntryPrice * sizeToken * this.takerFeeRate;
 
         const newPos: Position = {
             symbol: pair,
@@ -2698,6 +2855,7 @@ class BotEngine {
             lastLlmCheckTime: Date.now(),
             lastLlmCheckPrice: slippedEntryPrice,
             entryAtr: atr,
+            entryChop: localChop,
         };
 
         this.balance -= margin;
@@ -3152,9 +3310,8 @@ class BotEngine {
                 // Issue 12: Set cooldown for trading pair
                 this.lastClosedTime[pos.symbol] = Date.now();
 
-                // T3.3 — attribute realized PnL to the model that opened it.
                 const pnlPct = pos.margin > 0 ? (finalPnL / pos.margin) * 100 : 0;
-                this.recordModelTrade(pos.modelType || this.modelType, finalPnL, pnlPct);
+                this.recordModelTrade(pos.modelType || this.modelType, finalPnL, pnlPct, pos.entryChop);
 
                 const timeStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                 this.tradeHistory.push({
@@ -3760,7 +3917,7 @@ class BotEngine {
 
         // T3.3 — attribute realized PnL to the model that opened this position.
         const pnlPctManual = pos.margin > 0 ? (pos.pnl / pos.margin) * 100 : 0;
-        this.recordModelTrade(pos.modelType || this.modelType, pos.pnl, pnlPctManual);
+        this.recordModelTrade(pos.modelType || this.modelType, pos.pnl, pnlPctManual, pos.entryChop);
 
         const timeStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         this.tradeHistory.push({
@@ -4249,6 +4406,8 @@ class BotEngine {
         refCandles: Candle[];
         pair: string;
         ensembleSignal?: EnsembleSignalContext;
+        hurst?: number;
+        adx?: number;
     }): Promise<QuantOperatorDecision | null> {
         const cfg = readLLMConfig({
             provider: this.llmProvider,
@@ -4272,6 +4431,9 @@ class BotEngine {
         ]);
 
         const maxLossUsd = this.getMaxDailyLossLimitUsd();
+        const dailyProfitTargetUsd = this.getDailyProfitTargetUsd();
+        const dailyProfitTargetPct = this.dailyProfitTarget;
+        const dailyTargetProgressPct = dailyProfitTargetUsd > 0 ? (this.dailyPnL / dailyProfitTargetUsd) * 100 : 0;
 
         const xSentiment = sentiment ? {
             score: sentiment.score,
@@ -4297,7 +4459,9 @@ class BotEngine {
                 volatility: Number(input.vol.toFixed(3)),
                 trendIntensity: input.trend,
                 macroBias,
-                xSentiment
+                xSentiment,
+                hurst: input.hurst,
+                adx: input.adx
             }],
             openPositions: summarizePositions(this.openPositions, this.livePrices),
             recentTrades: summarizeRecentTrades(this.tradeHistory as any),
@@ -4308,6 +4472,9 @@ class BotEngine {
                 return sum + (p.type === 'LONG' ? 1 : -1) * p.size * (cp - p.entryPrice);
             }, 0).toFixed(2)),
             dailyPnL: Number(this.dailyPnL?.toFixed?.(2) ?? 0),
+            dailyProfitTargetUsd: Number(dailyProfitTargetUsd.toFixed(2)),
+            dailyProfitTargetPct: Number((dailyProfitTargetPct * 100).toFixed(2)),
+            dailyTargetProgressPct: Number(dailyTargetProgressPct.toFixed(2)),
             maxDailyDrawdownLimitUsd: Number(maxLossUsd.toFixed(2)),
             maxDailyDrawdownPct: Number((this.maxDailyDrawdown * 100).toFixed(2)),
             hoursRemainingInDay: Number(computeHoursRemainingInDay().toFixed(2)),
@@ -4470,6 +4637,17 @@ class BotEngine {
             const vol = this.calculateVolatilityRatio(refCandles);
             const trend = this.calculateTrendIntensity(refCandles);
 
+            let hurst = 0.5;
+            let adx = 25;
+            if (refCandles.length > 0) {
+                const closes = refCandles.map(c => c.close);
+                const highs = refCandles.map(c => c.high);
+                const lows = refCandles.map(c => c.low);
+                hurst = this.ai.calculateHurstExponent(closes, 50);
+                const adxValues = this.ai.calculateADX(highs, lows, closes, 14);
+                adx = adxValues[adxValues.length - 1] ?? 25;
+            }
+
             // Cheap Pre-filter Rule to save tokens:
             // If there are no open positions and this is not a forced position adjustment check,
             // we check if the indicators have changed significantly.
@@ -4531,7 +4709,7 @@ class BotEngine {
                         const dataset2 = this.ai.extractFeatures(closes, highs, lows, volumes);
                         if (dataset2.length > 0) {
                             const pt = dataset2[dataset2.length - 1];
-                            const ens2 = await this.predictEnsemble(pair, closes, highs, lows, volumes, pt.features);
+                            const ens2 = this.predictEnsemble(pair, closes, highs, lows, volumes, pt.features);
                             freshEnsembleSignal = ens2.ensembleCtx;
                             this.lastEnsembleSignalMap[pair] = freshEnsembleSignal;
                         }
@@ -4543,7 +4721,8 @@ class BotEngine {
 
             const llmDecision = await this.tryLlmDecision({
                 chop, vol, trend, refCandles, pair,
-                ensembleSignal: freshEnsembleSignal
+                ensembleSignal: freshEnsembleSignal,
+                hurst, adx
             });
 
             if (llmDecision) {

@@ -387,24 +387,24 @@ export default function LandingPage() {
                         <div className="reveal-on-scroll">
                             <span className="text-[10px] text-[#00ffa7] font-black uppercase tracking-[0.24em] font-mono">Cognitive Brain</span>
                             <h2 className="text-3xl md:text-4xl font-black uppercase tracking-tight text-white mt-3 leading-none">
-                                LLM QUANT OPERATOR
+                                LOCAL QUANT AI BRAIN
                             </h2>
                             <div className="w-12 h-[2px] bg-[#00ffa7] mt-4" />
 
                             <p className="mt-6 text-[13px] text-[#949fa6] leading-[1.8] font-semibold">
-                                The <span className="text-white font-black">LLM Quant Operator</span> orchestrates parameters in real-time. 
-                                By formatting pricing telemetry, indicator slopes, and transaction outcomes, it asks frontier AI models to solve optimal risk limits.
+                                The <span className="text-white font-black">Local Quant AI Brain</span> orchestrates parameters in real-time. 
+                                By formatting pricing telemetry, indicator slopes, and transaction outcomes, it runs local offline decision models to solve optimal risk limits.
                             </p>
                             <p className="mt-4 text-[13px] text-[#949fa6] leading-[1.8] font-semibold">
-                                The execution limits and thresholds are fine-tuned block-by-block. When anomalous regimes are detected, the Operator compresses stops instantly.
+                                The execution limits and thresholds are fine-tuned block-by-block. When anomalous regimes are detected, the Brain compresses stops instantly.
                             </p>
 
                             <div className="mt-8 space-y-4">
                                 {[
-                                    { label: 'Compatible APIs', value: 'OpenAI, Anthropic, Gemini, DeepSeek' },
+                                    { label: 'Processing Model', value: 'Local Quantum Offline AI Engine (100% Offline)' },
                                     { label: 'Dynamic Outputs', value: 'Risk Factor, DCA allocations, Stop Tiers' },
-                                    { label: 'Security Gateway', value: 'Local fallback engine locks if API fails' },
-                                    { label: 'Decay Safeguard', value: 'Auto-degrades LLM factor if win rates drop' },
+                                    { label: 'Security Gateway', value: 'Runs fully local on Node.js server with zero network dependencies' },
+                                    { label: 'Decay Safeguard', value: 'Auto-degrades AI factor if win rates drop' },
                                 ].map((item, idx) => (
                                     <div key={idx} className="flex items-center gap-3">
                                         <div className="w-1.5 h-1.5 rounded-full bg-[#00ffa7]" />
@@ -432,7 +432,7 @@ export default function LandingPage() {
                                 <div className="space-y-4">
                                     {[
                                         { step: '01', title: 'Compile State telemetry', desc: 'Prepares structured indicators, volume vectors, and active holdings into JSON payload.' },
-                                        { step: '02', title: 'Frontier AI reasoning', desc: 'Prompts selected model parameters to calibrate trend, slippage, and size levels.' },
+                                        { step: '02', title: 'Local AI reasoning', desc: 'Processes quantitative indicators, Hurst regime, and drawdown rules locally with zero network delay.' },
                                         { step: '03', title: 'Execute Calibration', desc: 'Overwrites live thread config instantly. Triggers DCA or adjusts stops based on decision payload.' },
                                     ].map((s) => (
                                         <div key={s.step} className="flex gap-4 p-4 rounded bg-[#06080b] border border-white/[0.03]">

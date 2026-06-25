@@ -39,6 +39,8 @@ export interface PairMetrics {
     cmcChange24h?: number;
     /** CMC 24h trading volume in USD. */
     cmcVolume24h?: number;
+    hurst?: number;
+    adx?: number;
 }
 
 /**
@@ -93,6 +95,9 @@ export interface MarketContext {
     /** Gross unrealized PnL (price-action only, excludes gas/fee costs). Use this for EXIT decisions. */
     totalUnrealizedPnl: number;
     dailyPnL: number;
+    dailyProfitTargetUsd?: number;
+    dailyProfitTargetPct?: number;
+    dailyTargetProgressPct?: number;
     /** Max allowed daily loss in USD (initialCapital * maxDailyDrawdown). */
     maxDailyDrawdownLimitUsd: number;
     /** Max daily drawdown as fraction of capital (e.g. 0.05 = 5%). */
@@ -171,6 +176,7 @@ export interface QuantOperatorDecision {
     trailingTpAggressiveness?: number;
     // Emergency risk-off: when true the bot closes ALL open positions immediately.
     forceExit?: boolean;
+    targetMetAction?: 'NORMAL' | 'PAUSE_NEW_ENTRIES';
     positionAdjustments?: PositionAdjustment[];
 }
 

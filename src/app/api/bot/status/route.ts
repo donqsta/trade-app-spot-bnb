@@ -197,32 +197,17 @@ export async function POST(req: Request) {
         // value, never a masked placeholder echoed back from the UI.
         // ============================================================
         if (typeof data.llmProvider === 'string') {
-            const allowed = ['openai', 'anthropic', 'gemini', 'deepseek', 'off'];
+            const allowed = ['local_ai', 'off'];
             if (allowed.includes(data.llmProvider)) {
-                const prevProvider = bot.llmProvider;
                 bot.llmProvider = data.llmProvider as any;
-                // When provider changes, reset stored model so the correct default is used.
-                // This prevents a stale model name (e.g. "gemini-2.5-flash") carrying over
-                // to a new provider (e.g. deepseek) and causing API errors.
-                if (prevProvider !== bot.llmProvider) {
-                    const providerDefaults: Record<string, string> = {
-                        openai: 'gpt-4o-mini',
-                        anthropic: 'claude-3-5-haiku-20241022',
-                        gemini: 'gemini-2.5-flash',
-                        deepseek: 'deepseek-chat',
-                    };
-                    bot.llmModel = providerDefaults[bot.llmProvider] ?? '';
+                if (bot.llmProvider === 'local_ai') {
+                    bot.llmModel = 'local-quant';
+                    bot.llmApiKey = '';
+                } else {
+                    bot.llmModel = '';
+                    bot.llmApiKey = '';
                 }
                 bot.addLog('SYSTEM', `🤖 Switched LLM provider: ${bot.llmProvider.toUpperCase()} (model: ${bot.llmModel || 'default'})`, 'info-line');
-            }
-        }
-        if (typeof data.llmModel === 'string') {
-            bot.llmModel = data.llmModel.trim();
-        }
-        if (typeof data.llmApiKey === 'string') {
-            const cleanKey = data.llmApiKey.trim().replace(/\r/g, '');
-            if (cleanKey !== '' && !cleanKey.includes('...')) {
-                bot.llmApiKey = cleanKey;
             }
         }
 
