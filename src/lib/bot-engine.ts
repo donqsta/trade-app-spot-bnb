@@ -3959,6 +3959,20 @@ class BotEngine {
     public initializeSmartGrid(pair: string, currentPrice: number, atr: number) {
         if (this.gridActiveMap[pair]) return;
 
+        // Portfolio division: 1/N of total simulated balance per pair for Grid
+        const totalCapital = this.balance + this.marginUsed;
+        const targetPairMargin = totalCapital / this.activePairs.length;
+
+        const totalRiskUSDT = targetPairMargin * this.riskRatio * this.orderSizeMultiplier; // risk budget of this pair's allocation (incl. global size multiplier)
+        // Spaced across 6 grids
+        const marginPerGrid = (totalRiskUSDT / 6.0);
+        const sizePerGridUSDT = marginPerGrid; // Spot has no leverage
+
+        if (sizePerGridUSDT < this.minOrderSize) {
+            this.addLog('BOT', `⚠️ [${pair}] Skipping Grid deployment: Calculated size per grid (${sizePerGridUSDT.toFixed(2)} USDT) is below minimum order size (${this.minOrderSize.toFixed(2)} USDT).`, 'warning-line');
+            return;
+        }
+
         this.addLog('BOT', `🤖 [${pair}] Initializing Smart Grid due to sideway market detection...`, 'info-line');
 
         // Dynamic spacing based on current ATR and multiplier (Issue 9)
@@ -3972,15 +3986,6 @@ class BotEngine {
         // Define absolute breakout global stop loss boundaries
         this.gridUpperBoundaries[pair] = currentPrice + spacing * 4.0;
         this.gridLowerBoundaries[pair] = currentPrice - spacing * 4.0;
-
-        // Portfolio division: 1/N of total simulated balance per pair for Grid
-        const totalCapital = this.balance + this.marginUsed;
-        const targetPairMargin = totalCapital / this.activePairs.length;
-
-        const totalRiskUSDT = targetPairMargin * this.riskRatio * this.orderSizeMultiplier; // risk budget of this pair's allocation (incl. global size multiplier)
-        // Spaced across 6 grids
-        const marginPerGrid = (totalRiskUSDT / 6.0);
-        const sizePerGridUSDT = marginPerGrid; // Spot has no leverage
 
         const timeStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         const offsets = [-3, -2, -1, 1, 2, 3];
